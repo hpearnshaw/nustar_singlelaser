@@ -1,25 +1,19 @@
 ''' Translate PSD coordinates and create new psdcorr file '''
-__all__ = ['read_caldb', 'translate_psd0_to_psd1', 'translate_psd1_to_psd0']
+__all__ = ['translate_psd0_to_psd1', 'translate_psd1_to_psd0']
 
 import numpy as np
 import time
 from astropy.io import fits
 from scipy.spatial.transform import Rotation as R
+from .caldb import read_caldb
 
-# Function to retrieve the needed data from the CALDB
-def read_caldb(file):
-
-    f = fits.open(file)
-    ins = f[1].data
-    met = f[2].data
-    oa = f[3].data
-    oadet2 = f[4].data
-    f.close()
-
-    return ins, met, oa, oadet2
-
-# Returns the baseline in FB units and angle in radians
 def translate_psd0_to_psd1(psdcorrfilename,psdcorrnewfilename,caldb_file,baseline=None,angle=None):
+    '''
+        Translates PSD0 track to PSD1.
+        If baseline and angle are passed, it will use these values to perform translation.
+        If they are not, it will calculate these from the given psdcorr file (assuming both tracks are present).
+        Returns the baseline in mm and angle in radians
+    '''
     
     beat = time.time()
     
@@ -95,7 +89,14 @@ def translate_psd0_to_psd1(psdcorrfilename,psdcorrnewfilename,caldb_file,baselin
 
     return [baseline, angle]
 
+
 def translate_psd1_to_psd0(psdcorrfilename,psdcorrnewfilename,caldb_file,baseline=None,angle=None):
+    '''
+        Translates PSD0 track to PSD1.
+        If baseline and angle are passed, it will use these values to perform translation.
+        If they are not, it will calculate these from the given psdcorr file (assuming both tracks are present).
+        Returns the baseline in mm and angle in radians
+    '''
     
     beat = time.time()
     

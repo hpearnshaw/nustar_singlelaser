@@ -7,5 +7,8 @@ from ._astropy_init import *   # noqa
 # ----------------------------------------------------------------------------
 
 __all__ = []
-from .translate_psd import *   # noqa
- __all__ += translate_psd.__all__
+from .translate_psd import *
+__all__ += .translate_psd.__all__
+
+from .create_singlelaser_files import *
+__all__ += .create_singlelaser_files.__all__
