@@ -33,7 +33,7 @@ def translate_psd0_to_psd1(psdcorrfilename,psdcorrnewfilename,caldb_file,baselin
         total = len(met['X_PSD0'])
         remove = np.sum(xnan | ynan)
         met = met[~xnan & ~ynan]
-        print('Null PSD0 detector positions found, ignoring {}/{} rows'.format(remove,total))
+        print(f'Null PSD0 detector positions found, ignoring {remove}/{total} rows')
     
     # We only need to use 1 in every 100 entries, makes entire process faster
     met = met[::100]
@@ -75,7 +75,7 @@ def translate_psd0_to_psd1(psdcorrfilename,psdcorrnewfilename,caldb_file,baselin
     
     # Plant them into new updated psdcorr file
     hdr['COMMENT'] = 'PSD1 values derived from PSD0 track'
-    hdr['COMMENT'] = 'Baseline: {:.3f} mm, Angle: {:.5f} rad'.format(baseline,angle)
+    hdr['COMMENT'] = f'Baseline: {baseline:.3f} mm, Angle: {angle:.5f} rad'
     hdr['LASVALID'] = ('0', 'Laser used to create simulated PSD track')
     met['X_PSD1'] = psd1_new[:,0]
     met['Y_PSD1'] = psd1_new[:,1]
@@ -85,7 +85,7 @@ def translate_psd0_to_psd1(psdcorrfilename,psdcorrnewfilename,caldb_file,baselin
     psdcorrfile.writeto(psdcorrnewfilename, overwrite=True)
     psdcorrfile.close()
     
-    print("Translate PSD runtime: {} s".format(time.time() - beat))
+    print(f"Translate PSD runtime: {time.time() - beat} s")
 
     return [baseline, angle]
 
@@ -116,7 +116,7 @@ def translate_psd1_to_psd0(psdcorrfilename,psdcorrnewfilename,caldb_file,baselin
         total = len(met['X_PSD1'])
         remove = np.sum(xnan | ynan)
         met = met[~xnan & ~ynan]
-        print('Null PSD1 detector positions found, ignoring {}/{} rows'.format(remove,total))
+        print(f'Null PSD1 detector positions found, ignoring {remove}/{total} rows')
 
     # We only need to use 1 in every 100 entries, makes entire process faster
     met = met[::100]
@@ -159,7 +159,7 @@ def translate_psd1_to_psd0(psdcorrfilename,psdcorrnewfilename,caldb_file,baselin
 
     # Plant them into new updated psdcorr file
     hdr['COMMENT'] = 'PSD0 values derived from PSD1 track'
-    hdr['COMMENT'] = 'Baseline: {:.3f} mm, Angle: {:.5f} rad'.format(baseline,angle)
+    hdr['COMMENT'] = f'Baseline: {baseline:.3f} mm, Angle: {angle:.5f} rad'
     hdr['LASVALID'] = ('1', 'Laser used to create simulated PSD track')
     met['X_PSD0'] = psd0_new[:,0]
     met['Y_PSD0'] = psd0_new[:,1]
@@ -169,6 +169,6 @@ def translate_psd1_to_psd0(psdcorrfilename,psdcorrnewfilename,caldb_file,baselin
     psdcorrfile.writeto(psdcorrnewfilename, overwrite=True)
     psdcorrfile.close()
     
-    print("Translate PSD runtime: {} s".format(time.time() - beat))
+    print(f"Translate PSD runtime: {time.time() - beat} s")
     
     return [baseline, angle]
