@@ -6,7 +6,7 @@ Code for approximating mast aspect reconstruction using a single metrology laser
 Installation
 ------------
 
-1. Set the following environment variables to point at the location of the CALDB and the NuSTAR as-flown timeline.
+1. Set the following environment variables to point at the location of the CALDB and the NuSTAR observing schedule.
 
 ```bash
 # bash example
