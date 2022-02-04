@@ -8,20 +8,20 @@ Installation
 
 1. Set the following environment variables to point at the location of the CALDB and the NuSTAR as-flown timeline.
 
-.. code-block::
-
-$ # bash example
-$ export CALDB=/soft/astro/heasarc/CALDB
-$ export OBS_SCHEDULE=/home/nustar/observing_schedule.txt
+```bash
+# bash example
+export CALDB=/soft/astro/heasarc/CALDB
+export OBS_SCHEDULE=/home/nustar/observing_schedule.txt
+```
 
 2. Download and install repo
 
-.. code-block::
-
-$ git clone https://github.com/hpearnshaw/nustar_singlelaser
-$ cd nustar_singlelaser
-$ pip install -r requirements.txt
-$ pip install .
+```bash
+git clone https://github.com/hpearnshaw/nustar_singlelaser
+cd nustar_singlelaser
+pip install -r requirements.txt
+pip install .
+```
 
 The command `create_singlelaser_files` is now available to use.
 
@@ -30,9 +30,9 @@ Usage
 
 Make sure HEASoft is installed and initialized so that NuSTARDAS commands can be used. Generate single-laser files by calling: 
 
-.. code-block::
-
-$ create_singlelaser_files [path_to_observation_directory]
+```bash
+create_singlelaser_files [path_to_observation_directory]
+```
 
 If you do not specify an observation directory, you will be prompted for one. 
 
