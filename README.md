@@ -31,12 +31,12 @@ Usage
 Make sure HEASoft is installed and initialized so that NuSTARDAS commands can be used. Generate single-laser files by calling: 
 
 ```bash
-create_singlelaser_files [path_to_observation_directory]
+create_singlelaser_files /path/to/observation/directory/sequenceid
 ```
 
-If you do not specify an observation directory, you will be prompted for one. 
+If you do not specify an observation directory, you will be prompted for one. The observation directory must contain the `/event_cl` and `/auxil` subdirectories. 
 
-This code generates 16 new files in the `/event_cl` directory for the given observation. These are:
+This code generates 16 new files in the `/event_cl` subdirectory for the given observation. These are:
 * Simulated psdcorr and corrected mast files for each individual laser
 * OA and DET1 files for each individal laser, for FPMA and FPMB
 * Mode 07 (LASER0 only) and Mode 08 (LASER1 only) clean event files for FPMA and FPMB

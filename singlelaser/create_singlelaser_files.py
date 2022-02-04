@@ -71,6 +71,10 @@ def create_singlelaser_files(obs_dir):
     with resources.open_binary('singlelaser.interpolators', 'translation_angle_interpolator.pkl') as f:
         translation_angle = pickle.load(f)
 
+    # Define subdirectories
+    event_cl_dir = os.path.join(obs_dir,'event_cl')
+    auxil_dir = os.path.join(obs_dir,'auxil')
+
     # Get observation details from the observing schedule
     obs_sched = os.getenv('OBS_SCHEDULE')
     obsid = os.path.split(obs_dir)[1]
@@ -83,6 +87,11 @@ def create_singlelaser_files(obs_dir):
                 obs_met = (obs_start_time - datetime.strptime('2010-01-01', '%Y-%m-%d')).total_seconds()
                 print(f'SAA: {saa}, Start time: {obs_start_time.strftime("%Y-%m-%d %H:%M:%S")}')
                 break
+    # Exit if the observing schedule is out of date
+    try: obs_start_time
+    except:
+        print('Observation not in observing schedule')
+        exit()
 
     # Get correct caldb alignment file
     caldb_file = get_alignment_file(obs_start_time)
@@ -92,15 +101,16 @@ def create_singlelaser_files(obs_dir):
     angle = translation_angle(saa)
     print('Estimated PSD translation parameters: {:.2f} mm, {:.5f} rad'.format(baseline, angle))
 
-    psdcorroldfilename = f'{obs_dir}/event_cl/nu{obsid}_psdcorr.fits'
-    psdcorrnew0filename = f'{obs_dir}/event_cl/nu{obsid}_psdcorr_sim0.fits'
-    psdcorrnew1filename = f'{obs_dir}/event_cl/nu{obsid}_psdcorr_sim1.fits'
+    psdcorrnewfilename = {}
+    psdcorroldfilename = os.path.join(event_cl_dir,f'nu{obsid}_psdcorr.fits')
+    psdcorrnewfilename['0'] = os.path.join(event_cl_dir,f'nu{obsid}_psdcorr_sim0.fits')
+    psdcorrnewfilename['1'] = os.path.join(event_cl_dir,f'nu{obsid}_psdcorr_sim1.fits')
     _, _ = translate_psd0_to_psd1(psdcorroldfilename,
-                                  psdcorrnew0filename,
+                                  psdcorrnewfilename['0'],
                                   caldb_file,baseline=baseline,angle=angle)
 
     _, _ = translate_psd1_to_psd0(psdcorroldfilename,
-                                  psdcorrnew1filename,
+                                  psdcorrnewfilename['1'],
                                   caldb_file,baseline=baseline,angle=angle+np.pi)
 
     # 1.5. Calculate mast adjustment parameters that don't change with laser
@@ -111,7 +121,7 @@ def create_singlelaser_files(obs_dir):
     phase_difference = phase_diff(saa)
 
     # Work out time offset from the orbit file
-    orbit_file = fits.open(f'{obs_dir}/auxil/nu{obsid}_orb.fits')
+    orbit_file = fits.open(os.path.join(auxil_dir,f'nu{obsid}_orb.fits'))
     orb = orbit_file[1].data
     orbit_file.close()
 
@@ -143,10 +153,10 @@ def create_singlelaser_files(obs_dir):
     for laser in ['0','1']:
         # 2. Generate initial single-laser mast files
         print(f'Creating LASER{laser} mast file...')
-        new_mast_filepath = f'{obs_dir}/event_cl/nu{obsid}_mast_sim{laser}.fits'
+        new_mast_filepath = os.path.join(event_cl_dir,f'nu{obsid}_mast_sim{laser}.fits')
 
         call(['numetrology','metflag=no',
-              f'inpsdfilecor={obs_dir}/event_cl/nu{obsid}_psdcorr_sim{laser}.fits',
+              f'inpsdfilecor={psdcorrnewfilename[laser]}',
               f'mastaspectfile={new_mast_filepath}','clobber=yes'])
         
         # Open file in update mode
@@ -207,7 +217,7 @@ def create_singlelaser_files(obs_dir):
         print(f'Creating LASER{laser} event files...')
 
         # Open the event file to get relevant header information
-        ev_file = fits.open(f'{obs_dir}/event_cl/nu{obsid}A01_cl.evt')
+        ev_file = fits.open(os.path.join(event_cl_dir,f'nu{obsid}A01_cl.evt'))
         ev_hdr = ev_file[1].header
         ev_file.close()
 
@@ -216,22 +226,22 @@ def create_singlelaser_files(obs_dir):
         elif laser == '1': mode = '08'
 
         # Create new event files using nucoord (this also produces new oa and det1 files)
-        call(['nucoord',f'infile={obs_dir}/event_cl/nu{obsid}A01_cl.evt',
-              f'outfile={obs_dir}/event_cl/nu{obsid}A{mode}_cl.evt',
+        call(['nucoord','infile='+os.path.join(event_cl_dir,f'nu{obsid}A01_cl.evt'),
+              f'outfile='+os.path.join(event_cl_dir,f'nu{obsid}A{mode}_cl.evt'),
               f'alignfile={caldb_file}',f'mastaspectfile={new_mast_filepath}',
-              f'attfile={obs_dir}/event_cl/nu{obsid}_att.fits',
+              f'attfile='+os.path.join(auxil_dir,f'nu{obsid}_att.fits'),
               f'pntra={ev_hdr["RA_NOM"]}', f'pntdec={ev_hdr["DEC_NOM"]}',
-              f'optaxisfile={obs_dir}/event_cl/nu{obsid}A_oa_{laser}.fits',
-              f'det1reffile={obs_dir}/event_cl/nu{obsid}A_det1_{laser}.fits',
+              f'optaxisfile='+os.path.join(event_cl_dir,f'nu{obsid}A_oa_{laser}.fits'),
+              f'det1reffile='+os.path.join(event_cl_dir,f'nu{obsid}A_det1_{laser}.fits'),
               'clobber=yes'])
 
-        call(['nucoord',f'infile={obs_dir}/event_cl/nu{obsid}B01_cl.evt',
-              f'outfile={obs_dir}/event_cl/nu{obsid}B{mode}_cl.evt',
+        call(['nucoord','infile='+os.path.join(event_cl_dir,f'nu{obsid}B01_cl.evt'),
+              f'outfile='+os.path.join(event_cl_dir,f'nu{obsid}B{mode}_cl.evt'),
               f'alignfile={caldb_file}',f'mastaspectfile={new_mast_filepath}',
-              f'attfile={obs_dir}/event_cl/nu{obsid}_att.fits',
+              f'attfile='+os.path.join(auxil_dir,f'nu{obsid}_att.fits'),
               f'pntra={ev_hdr["RA_NOM"]}', f'pntdec={ev_hdr["DEC_NOM"]}',
-              f'optaxisfile={obs_dir}/event_cl/nu{obsid}B_oa_{laser}.fits',
-              f'det1reffile={obs_dir}/event_cl/nu{obsid}B_det1_{laser}.fits',
+              f'optaxisfile='+os.path.join(event_cl_dir,f'nu{obsid}B_oa_{laser}.fits'),
+              f'det1reffile='+os.path.join(event_cl_dir,f'nu{obsid}B_det1_{laser}.fits'),
               'clobber=yes'])
 
         print(f'LASER{laser} complete')
