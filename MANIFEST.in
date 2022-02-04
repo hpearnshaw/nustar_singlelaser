@@ -3,6 +3,5 @@ include setup.cfg
 
 recursive-include singlelaser *
 recursive-include licenses *
-recursive-include interpolators *
 
 global-exclude *.pyc *.o

@@ -5,7 +5,6 @@ import os
 import numpy as np
 from datetime import datetime
 from astropy.io import fits
-from .caldb import read_caldb
 
 def read_caldb(file):
     '''
@@ -45,6 +44,6 @@ def get_alignment_file(obs_start):
     file_v = '{:03d}'.format(np.max([int(align_file[17:20])
                                      for align_file in os.listdir(caldb_align_dir)
                                      if (caldb_date in align_file)]))
-    caldb_file = os.path.join(caldb_align_dir,'nuCalign{}v{}.fits'.format(caldb_date,file_v)
+    caldb_file = os.path.join(caldb_align_dir,f'nuCalign{caldb_date}v{file_v}.fits')
 
     return caldb_file

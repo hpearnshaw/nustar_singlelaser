@@ -10,6 +10,8 @@ try:
 except ImportError:
     from ConfigParser import ConfigParser
 
+from setuptools import setup, find_packages
+
 # Get some values from the setup.cfg
 conf = ConfigParser()
 conf.read(['setup.cfg'])
@@ -23,32 +25,8 @@ AUTHOR_EMAIL = metadata.get('author_email', 'hpearn@caltech.edu')
 LICENSE = metadata.get('license', 'BSD 3-Clause')
 URL = metadata.get('url', '""')
 __minimum_python_version__ = metadata.get('minimum_python_version', '3.7')
-
-# Enforce Python version check - this is the same check as in __init__.py but
-# this one has to happen before importing ah_bootstrap.
-if sys.version_info < tuple((int(val) for val in __minimum_python_version__.split('.'))):
-    sys.stderr.write("ERROR: nustar_singlelaser requires Python {} or later\n".format(__minimum_python_version__))
-    sys.exit(1)
-
-import ah_bootstrap
-from setuptools import setup
-
-import builtins
-builtins._ASTROPY_SETUP_ = True
-builtins._ASTROPY_PACKAGE_NAME_ = PACKAGENAME
-
-from astropy_helpers.setup_helpers import (register_commands, get_debug_option,
-                                           get_package_info)
-from astropy_helpers.git_helpers import get_git_devstr
-from astropy_helpers.version_helpers import generate_version_py
-
 VERSION = metadata.get('version', '0.1dev')
 RELEASE = 'dev' not in VERSION
-if not RELEASE:
-    VERSION += get_git_devstr(False)
-
-cmdclassd = register_commands()
-generate_version_py()
 
 # Define entry points for command-line scripts
 entry_points = {'console_scripts': []}
@@ -58,8 +36,6 @@ if conf.has_section('entry_points'):
     for entry_point in entry_point_list:
         entry_points['console_scripts'].append('{0} = {1}'.format(entry_point[0], entry_point[1]))
 
-package_info = get_package_info()
-
 # Define package data
 package_data = {PACKAGENAME: []}
 
@@ -67,8 +43,6 @@ if conf.has_section('package_data'):
     package_data_list = conf.items('package_data')
     for data in package_data_list:
         package_data[PACKAGENAME].append(data[1])
-
-package_info['package_data'] = package_data
 
 setup(name=PACKAGENAME,
       version=VERSION,
@@ -80,4 +54,5 @@ setup(name=PACKAGENAME,
       url=URL,
       entry_points=entry_points,
       python_requires='>={}'.format(__minimum_python_version__),
-      **package_info)
+      packages=find_packages(),
+      package_data=package_data)

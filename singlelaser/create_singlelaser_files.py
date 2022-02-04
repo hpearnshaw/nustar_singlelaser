@@ -9,7 +9,6 @@
     
     4. Create new event lists using new mast files and save them as mode 07 and 08
 '''
-__all__ = ['create_singlelaser_files']
 
 import os, sys
 import dill as pickle
@@ -29,41 +28,51 @@ mast_length = 10545.8768 # mm
 def sinewave(t, amp, time_offset, amp_offset):
     return amp * np.sin( (2*np.pi / period) * (t + time_offset) ) + amp_offset
 
-# Directories for CALDB, interpolators, observing schedule
-caldb_dir = '/Users/hannah/caldb/data/nustar/fpm/bcf/align' #Get from CALDB env variable
-inter_dir = '/path/to/interpolators'
-obs_sched = '/path/to/observing_schedule.txt'
-
 def create_singlelaser_files(obs_dir):
     '''
         This function takes the provided observation directory and generates the
-        single-laser events files.
+        single-laser event files and other associated files for both lasers.
+        
+        Files created in event_cl (where {} is the sequence ID):
+        - nu{}_psdcorr_sim0.fits: PSDCORR file for LASER0 only
+        - nu{}_psdcorr_sim1.fits: PSDCORR file for LASER1 only
+        - nu{}_mast_sim0.fits: MAST file for LASER0 only
+        - nu{}_mast_sim1.fits: MAST file for LASER1 only
+        - nu{}A_oa_0.fits: OA file for LASER 0 only (also generated for FPMB)
+        - nu{}A_oa_1.fits: OA file for LASER 1 only (also generated for FPMB)
+        - nu{}A_det1_0.fits: DET1 file for LASER 0 only (also generated for FPMB)
+        - nu{}A_det1_1.fits: DET1 file for LASER 1 only (also generated for FPMB)
+        - nu{}A07_cl.evt: events file for LASER 0 only (also generated for FPMB)
+        - nu{}A08_cl.evt: events file for LASER 1 only (also generated for FPMB)
+        
+        Parameters
+        ----------
+        obs_dir : string
+            The path to the NuSTAR observation directory for which we want to generate
+            single-laser event files
     '''
-    
-    #print(resources.files('nustar_singlelaser'))
-    #exit()
-
     # Load spline functions
-    with open(inter_dir+'/sine_amp_interpolator.pkl', 'rb') as f:
+    with resources.open_binary('singlelaser.interpolators', 'sine_amp_interpolator.pkl') as f:
         sine_amp = pickle.load(f)
-    with open(inter_dir+'/sine_mean_interpolator.pkl', 'rb') as f:
+    with resources.open_binary('singlelaser.interpolators', 'sine_mean_interpolator.pkl') as f:
         sine_mean = pickle.load(f)
-    with open(inter_dir+'/x_amp_diff_0to1_interpolator.pkl', 'rb') as f:
+    with resources.open_binary('singlelaser.interpolators', 'x_amp_diff_0to1_interpolator.pkl') as f:
         x_amp_diff_0to1 = pickle.load(f)
-    with open(inter_dir+'/y_amp_diff_0to1_interpolator.pkl', 'rb') as f:
+    with resources.open_binary('singlelaser.interpolators', 'y_amp_diff_0to1_interpolator.pkl') as f:
         y_amp_diff_0to1 = pickle.load(f)
-    with open(inter_dir+'/x_amp_diff_1to0_interpolator.pkl', 'rb') as f:
+    with resources.open_binary('singlelaser.interpolators', 'x_amp_diff_1to0_interpolator.pkl') as f:
         x_amp_diff_1to0 = pickle.load(f)
-    with open(inter_dir+'/y_amp_diff_1to0_interpolator.pkl', 'rb') as f:
+    with resources.open_binary('singlelaser.interpolators', 'y_amp_diff_1to0_interpolator.pkl') as f:
         y_amp_diff_1to0 = pickle.load(f)
-    with open(inter_dir+'/phase_diff_interpolator.pkl', 'rb') as f:
+    with resources.open_binary('singlelaser.interpolators', 'phase_diff_interpolator.pkl') as f:
         phase_diff = pickle.load(f)
-    with open(inter_dir+'/baseline_interpolator.pkl', 'rb') as f:
+    with resources.open_binary('singlelaser.interpolators', 'baseline_interpolator.pkl') as f:
         estimate_baseline = pickle.load(f)
-    with open(inter_dir+'/translation_angle_interpolator.pkl', 'rb') as f:
+    with resources.open_binary('singlelaser.interpolators', 'translation_angle_interpolator.pkl') as f:
         translation_angle = pickle.load(f)
 
     # Get observation details from the observing schedule
+    obs_sched = os.getenv('OBS_SCHEDULE')
     obsid = os.path.split(obs_dir)[1]
     with open(obs_sched, 'r') as f:
         for line in f:
@@ -72,7 +81,7 @@ def create_singlelaser_files(obs_dir):
                 start_time, saa = details[0], float(details[8])
                 obs_start_time = datetime.strptime(start_time, '%Y:%j:%H:%M:%S')
                 obs_met = (obs_start_time - datetime.strptime('2010-01-01', '%Y-%m-%d')).total_seconds()
-                print('SAA: {}, Start time: {}'.format(saa, obs_start_time.strftime('%Y-%m-%d %H:%M:%S')))
+                print(f'SAA: {saa}, Start time: {obs_start_time.strftime("%Y-%m-%d %H:%M:%S")}')
                 break
 
     # Get correct caldb alignment file
@@ -83,9 +92,9 @@ def create_singlelaser_files(obs_dir):
     angle = translation_angle(saa)
     print('Estimated PSD translation parameters: {:.2f} mm, {:.5f} rad'.format(baseline, angle))
 
-    psdcorroldfilename = '{}/event_cl/nu{}_psdcorr.fits'.format(obs_dir,obsid)
-    psdcorrnew0filename = '{}/event_cl/nu{}_psdcorr_sim0.fits'.format(obs_dir,obsid)
-    psdcorrnew1filename = '{}/event_cl/nu{}_psdcorr_sim1.fits'.format(obs_dir,obsid)
+    psdcorroldfilename = f'{obs_dir}/event_cl/nu{obsid}_psdcorr.fits'
+    psdcorrnew0filename = f'{obs_dir}/event_cl/nu{obsid}_psdcorr_sim0.fits'
+    psdcorrnew1filename = f'{obs_dir}/event_cl/nu{obsid}_psdcorr_sim1.fits'
     _, _ = translate_psd0_to_psd1(psdcorroldfilename,
                                   psdcorrnew0filename,
                                   caldb_file,baseline=baseline,angle=angle)
@@ -102,7 +111,7 @@ def create_singlelaser_files(obs_dir):
     phase_difference = phase_diff(saa)
 
     # Work out time offset from the orbit file
-    orbit_file = fits.open('{}/auxil/nu{}_orb.fits'.format(obs_dir,obsid))
+    orbit_file = fits.open(f'{obs_dir}/auxil/nu{obsid}_orb.fits')
     orb = orbit_file[1].data
     orbit_file.close()
 
@@ -133,19 +142,19 @@ def create_singlelaser_files(obs_dir):
     # Generate mast files and adjust for LASER0 and LASER1
     for laser in ['0','1']:
         # 2. Generate initial single-laser mast files
-        print('Creating LASER{} mast file...'.format(laser))
-        new_mast_filepath = '{}/event_cl/nu{}_mast_sim{}.fits'.format(obs_dir,obsid,laser)
+        print(f'Creating LASER{laser} mast file...')
+        new_mast_filepath = f'{obs_dir}/event_cl/nu{obsid}_mast_sim{laser}.fits'
 
         call(['numetrology','metflag=no',
-              'inpsdfilecor={}/event_cl/nu{}_psdcorr_sim{}.fits'.format(obs_dir,obsid,laser),
-              'mastaspectfile={}'.format(new_mast_filepath),'clobber=yes'])
+              f'inpsdfilecor={obs_dir}/event_cl/nu{obsid}_psdcorr_sim{laser}.fits',
+              f'mastaspectfile={new_mast_filepath}','clobber=yes'])
         
         # Open file in update mode
         new_mast_file = fits.open(new_mast_filepath, mode='update')
         new_hdr, new_mast = new_mast_file[1].header, new_mast_file[1].data
 
         # 3. Modify mast file by using orbital phase and spline fits
-        print('Modifying LASER{} mast file...'.format(laser))
+        print(f'Modifying LASER{laser} mast file...')
         time = new_mast['TIME'] - new_mast['TIME'][0]
         newtx, newty = new_mast['T_FBOB'][:,0], new_mast['T_FBOB'][:,1]
         
@@ -172,16 +181,16 @@ def create_singlelaser_files(obs_dir):
         est_q_fbob[:,2], est_q_fbob[:,3] = np.sin(mast_twist_angle/2), np.cos(mast_twist_angle/2)
 
         # Record parameters in mast file header
-        print('Estimated mast parameters:')
-        print('Twist angle amplitude: {:.5f} rad, mean: {:.5f}, time offset: {:.2f} s '.format(amp,mean,time_offset))
-        print('X transform diff: {:.5f} mm, Y transform diff: {:.5f} mm'.format(x_diff,y_diff))
+        print(f'Estimated LASER{laser} mast parameters:')
+        print(f'Twist angle amplitude: {amp:.5f} rad, mean: {mean:.5f}, time offset: {time_offset:.2f} s')
+        print(f'X transform diff: {x_diff:.5f} mm, Y transform diff: {y_diff:.5f} mm')
 
         new_hdr['LASVALID'] = (laser, 'Laser used to create simulated PSD track')
-        new_hdr['SINEAMP'] = ('{:.5f}'.format(amp), 'Amplitude of mast twist angle variation (rad)')
-        new_hdr['SINEMEAN'] = ('{:.5f}'.format(mean), 'Mean of mast twist angle variation (rad)')
-        new_hdr['TOFFSET'] = ('{:.5f}'.format(time_offset), 'Offset of mast twist angle variation (s)')
-        new_hdr['TX_DIFF'] = ('{:.5f}'.format(x_diff), 'Difference applied to X transform (mm)')
-        new_hdr['TY_DIFF'] = ('{:.5f}'.format(y_diff), 'Difference applied to Y transform (mm)')
+        new_hdr['SINEAMP'] = (f'{amp:.5f}', 'Amplitude of mast twist angle variation (rad)')
+        new_hdr['SINEMEAN'] = (f'{mean:.5f}', 'Mean of mast twist angle variation (rad)')
+        new_hdr['TOFFSET'] = (f'{time_offset:.5f}', 'Offset of mast twist angle variation (s)')
+        new_hdr['TX_DIFF'] = (f'{x_diff:.5f}', 'Difference applied to X transform (mm)')
+        new_hdr['TY_DIFF'] = (f'{y_diff:.5f}', 'Difference applied to Y transform (mm)')
 
         # Save modifications to new mast file
         new_hdr['COMMENT'] = 'New mast file created from SAA-based transform/angle modifications'
@@ -195,10 +204,10 @@ def create_singlelaser_files(obs_dir):
         new_mast_file.close()
 
         # 4. Create new event lists using new mast files and save them as mode 07 and 08
-        print('Creating event file...')
+        print(f'Creating LASER{laser} event files...')
 
         # Open the event file to get relevant header information
-        ev_file = fits.open('{}/event_cl/nu{}A01_cl.evt'.format(obs_dir,obsid))
+        ev_file = fits.open(f'{obs_dir}/event_cl/nu{obsid}A01_cl.evt')
         ev_hdr = ev_file[1].header
         ev_file.close()
 
@@ -207,25 +216,25 @@ def create_singlelaser_files(obs_dir):
         elif laser == '1': mode = '08'
 
         # Create new event files using nucoord (this also produces new oa and det1 files)
-        call(['nucoord','infile={}/event_cl/nu{}A01_cl.evt'.format(obs_dir,obsid),
-              'outfile={}/event_cl/nu{}A{}_cl.evt'.format(obs_dir,obsid,mode),
-              'alignfile={}'.format(caldb_file),
-              'mastaspectfile={}'.format(new_mast_filepath),
-              'attfile={}/event_cl/nu{}_att.fits'.format(obs_dir,obsid),
-              'pntra={}'.format(ev_hdr['RA_NOM']), 'pntdec={}'.format(ev_hdr['DEC_NOM']),
-              'optaxisfile={}/event_cl/nu{}A_oa_{}.fits'.format(obs_dir,obsid,laser),
-              'det1reffile={}/event_cl/nu{}A_det1_{}.fits'.format(obs_dir,obsid,laser),
+        call(['nucoord',f'infile={obs_dir}/event_cl/nu{obsid}A01_cl.evt',
+              f'outfile={obs_dir}/event_cl/nu{obsid}A{mode}_cl.evt',
+              f'alignfile={caldb_file}',f'mastaspectfile={new_mast_filepath}',
+              f'attfile={obs_dir}/event_cl/nu{obsid}_att.fits',
+              f'pntra={ev_hdr["RA_NOM"]}', f'pntdec={ev_hdr["DEC_NOM"]}',
+              f'optaxisfile={obs_dir}/event_cl/nu{obsid}A_oa_{laser}.fits',
+              f'det1reffile={obs_dir}/event_cl/nu{obsid}A_det1_{laser}.fits',
               'clobber=yes'])
 
-        call(['nucoord','infile={}/event_cl/nu{}B01_cl.evt'.format(obs_dir,obsid),
-              'outfile={}/event_cl/nu{}B{}_cl.evt'.format(obs_dir,obsid,mode),
-              'alignfile={}'.format(caldb_file),
-              'mastaspectfile={}'.format(new_mast_filepath),
-              'attfile={}/event_cl/nu{}_att.fits'.format(obs_dir,obsid),
-              'pntra={}'.format(ev_hdr['RA_NOM']), 'pntdec={}'.format(ev_hdr['DEC_NOM']),
-              'optaxisfile={}/event_cl/nu{}B_oa_{}.fits'.format(obs_dir,obsid,laser),
-              'det1reffile={}/event_cl/nu{}B_det1_{}.fits'.format(obs_dir,obsid,laser),
+        call(['nucoord',f'infile={obs_dir}/event_cl/nu{obsid}B01_cl.evt',
+              f'outfile={obs_dir}/event_cl/nu{obsid}B{mode}_cl.evt',
+              f'alignfile={caldb_file}',f'mastaspectfile={new_mast_filepath}',
+              f'attfile={obs_dir}/event_cl/nu{obsid}_att.fits',
+              f'pntra={ev_hdr["RA_NOM"]}', f'pntdec={ev_hdr["DEC_NOM"]}',
+              f'optaxisfile={obs_dir}/event_cl/nu{obsid}B_oa_{laser}.fits',
+              f'det1reffile={obs_dir}/event_cl/nu{obsid}B_det1_{laser}.fits',
               'clobber=yes'])
+
+        print(f'LASER{laser} complete')
 
 def main():
     # Check for observation directory from the command line
