@@ -75,9 +75,7 @@ def create_singlelaser_files(obs_dir,run_nucoord=False):
         translation_angle = pickle.load(f)
 
     # Define subdirectories
-    event_cl_dir = os.path.join(obs_dir,'event_cl')
-    auxil_dir = os.path.join(obs_dir,'auxil')
-    obsid = os.path.split(obs_dir)[1]
+    obsid, event_cl_dir, auxil_dir = check_directory(obs_dir)
 
     # Get observation details from the observing schedule
     obs_start_time, obs_met, saa = get_obs_details(obsid)
@@ -258,9 +256,7 @@ def generate_event_files(obs_dir,laser='0'):
             The laser number to use as the active laser. Either '0' or '1'; defaults to '0'.
     '''
     # Define subdirectories
-    event_cl_dir = os.path.join(obs_dir,'event_cl')
-    auxil_dir = os.path.join(obs_dir,'auxil')
-    obsid = os.path.split(obs_dir)[1]
+    obsid, event_cl_dir, auxil_dir = check_directory(obs_dir,laser=laser)
     
     # Identify the caldb alignment file and new mast file
     obs_start_time, _, _ = get_obs_details(obsid)
@@ -335,6 +331,45 @@ def get_obs_details(obsid):
         exit()
     
     return obs_start_time, obs_met, saa
+    
+def check_directory(obs_dir,laser=''):
+    '''
+        This function checks to make sure required files and directories are present
+        and returns relevant subdirectories.
+        
+        Parameters
+        ----------
+        obs_dir : string
+            The path to the NuSTAR observation directory
+            
+        laser : string
+            If defined, check for a simulated mast file for this laser
+        
+        Returns
+        -------
+        directories?
+    '''
+    # Does the directory exist?
+    if not os.path.isdir(obs_dir):
+        print('Observation directory does not exist')
+        exit()
+    
+    # Does it contain event_cl and auxil directories?
+    event_cl_dir = os.path.join(obs_dir,'event_cl')
+    auxil_dir = os.path.join(obs_dir,'auxil')
+    obsid = os.path.split(obs_dir)[1]
+    if not (os.path.isdir(event_cl_dir) & os.path.isdir(auxil_dir)):
+        print('The event_cl and auxil subdirectories are required for single-laser operations')
+        exit()
+    
+    # If we're making event lists: are the mast files present?
+    if laser in ['0','1']:
+        if not os.path.isfile(os.path.join(event_cl_dir,f'nu{obsid}_mast_sim{laser}.fits')):
+            print(f'Mast file nu{obsid}_mast_sim{laser}.fits not found.')
+            print('Please run create_singlelaser_files to generate mast file first.')
+            exit()
+    
+    return obsid, event_cl_dir, auxil_dir
 
 def main():
     # Check for observation directory from the command line
