@@ -28,7 +28,7 @@ mast_length = 10545.8768 # mm
 def sinewave(t, amp, time_offset, amp_offset):
     return amp * np.sin( (2*np.pi / period) * (t + time_offset) ) + amp_offset
 
-def create_singlelaser_files(obs_dir):
+def create_singlelaser_files(obs_dir,run_nucoord=False):
     '''
         This function takes the provided observation directory and generates the
         single-laser event files and other associated files for both lasers.
@@ -38,10 +38,10 @@ def create_singlelaser_files(obs_dir):
         - nu{}_psdcorr_sim1.fits: PSDCORR file for LASER1 only
         - nu{}_mast_sim0.fits: MAST file for LASER0 only
         - nu{}_mast_sim1.fits: MAST file for LASER1 only
-        - nu{}A_oa_0.fits: OA file for LASER 0 only (also generated for FPMB)
-        - nu{}A_oa_1.fits: OA file for LASER 1 only (also generated for FPMB)
-        - nu{}A_det1_0.fits: DET1 file for LASER 0 only (also generated for FPMB)
-        - nu{}A_det1_1.fits: DET1 file for LASER 1 only (also generated for FPMB)
+        - nu{}A_oa_laser0.fits: OA file for LASER 0 only (also generated for FPMB)
+        - nu{}A_oa_laser1.fits: OA file for LASER 1 only (also generated for FPMB)
+        - nu{}A_det1_laser0.fits: DET1 file for LASER 0 only (also generated for FPMB)
+        - nu{}A_det1_laser1.fits: DET1 file for LASER 1 only (also generated for FPMB)
         - nu{}A07_cl.evt: events file for LASER 0 only (also generated for FPMB)
         - nu{}A08_cl.evt: events file for LASER 1 only (also generated for FPMB)
         
@@ -49,7 +49,10 @@ def create_singlelaser_files(obs_dir):
         ----------
         obs_dir : string
             The path to the NuSTAR observation directory for which we want to generate
-            single-laser event files
+            single-laser files
+            
+        run_nucoord : bool
+            Flag to determine whether to run nucoord and generate event files (defaults to false)
     '''
     # Load spline functions
     with resources.open_binary('singlelaser.interpolators', 'sine_amp_interpolator.pkl') as f:
@@ -74,24 +77,10 @@ def create_singlelaser_files(obs_dir):
     # Define subdirectories
     event_cl_dir = os.path.join(obs_dir,'event_cl')
     auxil_dir = os.path.join(obs_dir,'auxil')
+    obsid = os.path.split(obs_dir)[1]
 
     # Get observation details from the observing schedule
-    obs_sched = os.getenv('OBS_SCHEDULE')
-    obsid = os.path.split(obs_dir)[1]
-    with open(obs_sched, 'r') as f:
-        for line in f:
-            if obsid in line:
-                details = line.split()
-                start_time, saa = details[0], float(details[8])
-                obs_start_time = datetime.strptime(start_time, '%Y:%j:%H:%M:%S')
-                obs_met = (obs_start_time - datetime.strptime('2010-01-01', '%Y-%m-%d')).total_seconds()
-                print(f'SAA: {saa}, Start time: {obs_start_time.strftime("%Y-%m-%d %H:%M:%S")}')
-                break
-    # Exit if the observing schedule is out of date
-    try: obs_start_time
-    except:
-        print('Observation not in observing schedule')
-        exit()
+    obs_start_time, obs_met, saa = get_obs_details(obsid)
 
     # Get correct caldb alignment file
     caldb_file = get_alignment_file(obs_start_time)
@@ -213,38 +202,139 @@ def create_singlelaser_files(obs_dir):
         new_mast_file.flush()
         new_mast_file.close()
 
-        # 4. Create new event lists using new mast files and save them as mode 07 and 08
-        print(f'Creating LASER{laser} event files...')
+        if run_nucoord:
+            # 4. Create new event lists using new mast files and save them as mode 07 and 08
+            print(f'Creating LASER{laser} event files...')
 
-        # Open the event file to get relevant header information
-        ev_file = fits.open(os.path.join(event_cl_dir,f'nu{obsid}A01_cl.evt'))
-        ev_hdr = ev_file[1].header
-        ev_file.close()
+            # Open the mode 01 event file to get relevant header information
+            ev_file = fits.open(os.path.join(event_cl_dir,f'nu{obsid}A01_cl.evt'))
+            ev_hdr = ev_file[1].header
+            ev_file.close()
 
-        # Assign event file mode
-        if laser == '0': mode = '07'
-        elif laser == '1': mode = '08'
+            # Assign event file mode
+            if laser == '0': mode = '07'
+            elif laser == '1': mode = '08'
 
-        # Create new event files using nucoord (this also produces new oa and det1 files)
-        call(['nucoord','infile='+os.path.join(event_cl_dir,f'nu{obsid}A01_cl.evt'),
-              f'outfile='+os.path.join(event_cl_dir,f'nu{obsid}A{mode}_cl.evt'),
-              f'alignfile={caldb_file}',f'mastaspectfile={new_mast_filepath}',
-              f'attfile='+os.path.join(auxil_dir,f'nu{obsid}_att.fits'),
-              f'pntra={ev_hdr["RA_NOM"]}', f'pntdec={ev_hdr["DEC_NOM"]}',
-              f'optaxisfile='+os.path.join(event_cl_dir,f'nu{obsid}A_oa_{laser}.fits'),
-              f'det1reffile='+os.path.join(event_cl_dir,f'nu{obsid}A_det1_{laser}.fits'),
-              'clobber=yes'])
+            # Create new event files using nucoord (this also produces new oa and det1 files)
+            call(['nucoord','infile='+os.path.join(event_cl_dir,f'nu{obsid}A01_cl.evt'),
+                  f'outfile='+os.path.join(event_cl_dir,f'nu{obsid}A{mode}_cl.evt'),
+                  f'alignfile={caldb_file}',f'mastaspectfile={new_mast_filepath}',
+                  f'attfile='+os.path.join(auxil_dir,f'nu{obsid}_att.fits'),
+                  f'pntra={ev_hdr["RA_NOM"]}', f'pntdec={ev_hdr["DEC_NOM"]}',
+                  f'optaxisfile='+os.path.join(event_cl_dir,f'nu{obsid}A_oa_laser{laser}.fits'),
+                  f'det1reffile='+os.path.join(event_cl_dir,f'nu{obsid}A_det1_laser{laser}.fits'),
+                  'clobber=yes'])
 
-        call(['nucoord','infile='+os.path.join(event_cl_dir,f'nu{obsid}B01_cl.evt'),
-              f'outfile='+os.path.join(event_cl_dir,f'nu{obsid}B{mode}_cl.evt'),
-              f'alignfile={caldb_file}',f'mastaspectfile={new_mast_filepath}',
-              f'attfile='+os.path.join(auxil_dir,f'nu{obsid}_att.fits'),
-              f'pntra={ev_hdr["RA_NOM"]}', f'pntdec={ev_hdr["DEC_NOM"]}',
-              f'optaxisfile='+os.path.join(event_cl_dir,f'nu{obsid}B_oa_{laser}.fits'),
-              f'det1reffile='+os.path.join(event_cl_dir,f'nu{obsid}B_det1_{laser}.fits'),
-              'clobber=yes'])
+            call(['nucoord','infile='+os.path.join(event_cl_dir,f'nu{obsid}B01_cl.evt'),
+                  f'outfile='+os.path.join(event_cl_dir,f'nu{obsid}B{mode}_cl.evt'),
+                  f'alignfile={caldb_file}',f'mastaspectfile={new_mast_filepath}',
+                  f'attfile='+os.path.join(auxil_dir,f'nu{obsid}_att.fits'),
+                  f'pntra={ev_hdr["RA_NOM"]}', f'pntdec={ev_hdr["DEC_NOM"]}',
+                  f'optaxisfile='+os.path.join(event_cl_dir,f'nu{obsid}B_oa_laser{laser}.fits'),
+                  f'det1reffile='+os.path.join(event_cl_dir,f'nu{obsid}B_det1_laser{laser}.fits'),
+                  'clobber=yes'])
 
         print(f'LASER{laser} complete')
+
+def generate_event_files(obs_dir,laser='0'):
+    '''
+        This function runs nucoord to generate single laser event files.
+        
+        Files created in event_cl (where {} is the sequence ID):
+        - nu{}A_oa_laser0.fits: OA file for LASER 0 only (also generated for FPMB)
+        - nu{}A_oa_laser1.fits: OA file for LASER 1 only (also generated for FPMB)
+        - nu{}A_det1_laser0.fits: DET1 file for LASER 0 only (also generated for FPMB)
+        - nu{}A_det1_laser1.fits: DET1 file for LASER 1 only (also generated for FPMB)
+        - nu{}A07_cl.evt: events file for LASER 0 only (also generated for FPMB)
+        - nu{}A08_cl.evt: events file for LASER 1 only (also generated for FPMB)
+        
+        Parameters
+        ----------
+        obs_dir : string
+            The path to the NuSTAR observation directory for which we want to generate
+            single-laser event files
+        
+        laser : string
+            The laser number to use as the active laser. Either '0' or '1'; defaults to '0'.
+    '''
+    # Define subdirectories
+    event_cl_dir = os.path.join(obs_dir,'event_cl')
+    auxil_dir = os.path.join(obs_dir,'auxil')
+    obsid = os.path.split(obs_dir)[1]
+    
+    # Identify the caldb alignment file and new mast file
+    obs_start_time, _, _ = get_obs_details(obsid)
+    caldb_file = get_alignment_file(obs_start_time)
+    new_mast_filepath = os.path.join(event_cl_dir,f'nu{obsid}_mast_sim{laser}.fits')
+    
+    # Open the mode 01 event file to get relevant header information
+    ev_file = fits.open(os.path.join(event_cl_dir,f'nu{obsid}A01_cl.evt'))
+    ev_hdr = ev_file[1].header
+    ev_file.close()
+
+    # Assign event file mode
+    if laser == '0': mode = '07'
+    elif laser == '1': mode = '08'
+
+    # Create new event files using nucoord (this also produces new oa and det1 files)
+    call(['nucoord','infile='+os.path.join(event_cl_dir,f'nu{obsid}A01_cl.evt'),
+          f'outfile='+os.path.join(event_cl_dir,f'nu{obsid}A{mode}_cl.evt'),
+          f'alignfile={caldb_file}',f'mastaspectfile={new_mast_filepath}',
+          f'attfile='+os.path.join(auxil_dir,f'nu{obsid}_att.fits'),
+          f'pntra={ev_hdr["RA_NOM"]}', f'pntdec={ev_hdr["DEC_NOM"]}',
+          f'optaxisfile='+os.path.join(event_cl_dir,f'nu{obsid}A_oa_laser{laser}.fits'),
+          f'det1reffile='+os.path.join(event_cl_dir,f'nu{obsid}A_det1_laser{laser}.fits'),
+          'clobber=yes'])
+
+    call(['nucoord','infile='+os.path.join(event_cl_dir,f'nu{obsid}B01_cl.evt'),
+          f'outfile='+os.path.join(event_cl_dir,f'nu{obsid}B{mode}_cl.evt'),
+          f'alignfile={caldb_file}',f'mastaspectfile={new_mast_filepath}',
+          f'attfile='+os.path.join(auxil_dir,f'nu{obsid}_att.fits'),
+          f'pntra={ev_hdr["RA_NOM"]}', f'pntdec={ev_hdr["DEC_NOM"]}',
+          f'optaxisfile='+os.path.join(event_cl_dir,f'nu{obsid}B_oa_laser{laser}.fits'),
+          f'det1reffile='+os.path.join(event_cl_dir,f'nu{obsid}B_det1_laser{laser}.fits'),
+          'clobber=yes'])
+          
+          
+def get_obs_details(obsid):
+    '''
+        This function searches the observing schedule for the start time and saa
+        of a given observation ID, and calculates Mission Elapsed Time.
+        
+        Parameters
+        ----------
+        obsid : string
+            The sequenceID for the observation to search for
+            
+        Returns
+        -------
+        obs_start_time : datetime
+            The observation start time in datetime format
+        
+        obs_met : float
+            The Mission Elapsed Time in seconds
+            
+        saa : float
+            The Solar aspect angle
+    '''
+    # Get observation details from the observing schedule
+    obs_sched = os.getenv('OBS_SCHEDULE')
+    with open(obs_sched, 'r') as f:
+        for line in f:
+            if obsid in line:
+                details = line.split()
+                start_time, saa = details[0], float(details[8])
+                obs_start_time = datetime.strptime(start_time, '%Y:%j:%H:%M:%S')
+                obs_met = (obs_start_time - datetime.strptime('2010-01-01', '%Y-%m-%d')).total_seconds()
+                print(f'SAA: {saa}, Start time: {obs_start_time.strftime("%Y-%m-%d %H:%M:%S")}')
+                break
+    # Exit if the observing schedule is out of date
+    try: obs_start_time
+    except:
+        print('Observation not in observing schedule')
+        exit()
+    
+    return obs_start_time, obs_met, saa
 
 def main():
     # Check for observation directory from the command line
@@ -254,6 +344,17 @@ def main():
         obs_dir = sys.argv[1]
     
     create_singlelaser_files(obs_dir)
+    
+def event():
+    # Check for observation directory from the command line
+    if len(sys.argv) < 2:
+        obs_dir = input('Observation directory: ')
+    else:
+        obs_dir = sys.argv[1]
+    
+    # Generate files for both lasers by default
+    generate_event_files(obs_dir,laser='0')
+    generate_event_files(obs_dir,laser='1')
 
 if __name__ == '__main__':
     main()
