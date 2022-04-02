@@ -234,7 +234,7 @@ def create_singlelaser_files(obs_dir,run_nucoord=False):
 
         print(f'LASER{laser} complete')
 
-def generate_event_files(obs_dir,laser='0'):
+def generate_event_files(obs_dir,out_dir='.',laser='0'):
     '''
         This function runs nucoord to generate single laser event files.
         
@@ -274,21 +274,21 @@ def generate_event_files(obs_dir,laser='0'):
 
     # Create new event files using nucoord (this also produces new oa and det1 files)
     call(['nucoord','infile='+os.path.join(event_cl_dir,f'nu{obsid}A01_cl.evt'),
-          f'outfile='+os.path.join(event_cl_dir,f'nu{obsid}A{mode}_cl.evt'),
+          f'outfile='+os.path.join(out_dir,f'nu{obsid}A{mode}_cl.evt'),
           f'alignfile={caldb_file}',f'mastaspectfile={new_mast_filepath}',
           f'attfile='+os.path.join(auxil_dir,f'nu{obsid}_att.fits'),
           f'pntra={ev_hdr["RA_NOM"]}', f'pntdec={ev_hdr["DEC_NOM"]}',
-          f'optaxisfile='+os.path.join(event_cl_dir,f'nu{obsid}A_oa_laser{laser}.fits'),
-          f'det1reffile='+os.path.join(event_cl_dir,f'nu{obsid}A_det1_laser{laser}.fits'),
+          f'optaxisfile='+os.path.join(out_dir,f'nu{obsid}A_oa_laser{laser}.fits'),
+          f'det1reffile='+os.path.join(out_dir,f'nu{obsid}A_det1_laser{laser}.fits'),
           'clobber=yes'])
 
     call(['nucoord','infile='+os.path.join(event_cl_dir,f'nu{obsid}B01_cl.evt'),
-          f'outfile='+os.path.join(event_cl_dir,f'nu{obsid}B{mode}_cl.evt'),
+          f'outfile='+os.path.join(out_dir,f'nu{obsid}B{mode}_cl.evt'),
           f'alignfile={caldb_file}',f'mastaspectfile={new_mast_filepath}',
           f'attfile='+os.path.join(auxil_dir,f'nu{obsid}_att.fits'),
           f'pntra={ev_hdr["RA_NOM"]}', f'pntdec={ev_hdr["DEC_NOM"]}',
-          f'optaxisfile='+os.path.join(event_cl_dir,f'nu{obsid}B_oa_laser{laser}.fits'),
-          f'det1reffile='+os.path.join(event_cl_dir,f'nu{obsid}B_det1_laser{laser}.fits'),
+          f'optaxisfile='+os.path.join(out_dir,f'nu{obsid}B_oa_laser{laser}.fits'),
+          f'det1reffile='+os.path.join(out_dir,f'nu{obsid}B_det1_laser{laser}.fits'),
           'clobber=yes'])
           
           
@@ -315,6 +315,10 @@ def get_obs_details(obsid):
     '''
     # Get observation details from the observing schedule
     obs_sched = os.getenv('OBS_SCHEDULE')
+    if not obs_sched:
+        print('Environment variable OBS_SCHEDULE not set!')
+        exit()
+    
     with open(obs_sched, 'r') as f:
         for line in f:
             if obsid in line:
@@ -381,15 +385,21 @@ def main():
     create_singlelaser_files(obs_dir)
     
 def event():
-    # Check for observation directory from the command line
-    if len(sys.argv) < 2:
+    # Check for observation directory and output directory from the command line
+    try: obs_dir = sys.argv[1]
+    except IndexError:
         obs_dir = input('Observation directory: ')
-    else:
-        obs_dir = sys.argv[1]
+    
+    try: out_dir = sys.argv[2]
+    except IndexError:
+        out_dir = input('Output directory: ')
+    
+    if not os.path.isdir(out_dir):
+        os.mkdir(out_dir)
     
     # Generate files for both lasers by default
-    generate_event_files(obs_dir,laser='0')
-    generate_event_files(obs_dir,laser='1')
+    generate_event_files(obs_dir,out_dir,laser='0')
+    generate_event_files(obs_dir,out_dir,laser='1')
 
 if __name__ == '__main__':
     main()
