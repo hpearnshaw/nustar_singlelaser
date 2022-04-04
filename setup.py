@@ -55,4 +55,5 @@ setup(name=PACKAGENAME,
       entry_points=entry_points,
       python_requires='>={}'.format(__minimum_python_version__),
       packages=find_packages(),
-      package_data=package_data)
+      package_data=package_data,
+      include_package_data=True)
