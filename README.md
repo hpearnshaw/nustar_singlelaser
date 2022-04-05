@@ -20,15 +20,17 @@ export OBS_SCHEDULE=/home/nustar/observing_schedule.txt
 git clone https://github.com/hpearnshaw/nustar_singlelaser
 cd nustar_singlelaser
 pip install -r requirements.txt
-pip install .
+pip install -e .
 ```
 
-The command `create_singlelaser_files` is now available to use.
+Known issue: install needs to be done using -e or the interpolator files will not be in the right place. Yet to figure out why this is, but for now, just install in developer mode. 
+
+The commands `create_singlelaser_files` and `create_singlelaser_event_files` are now available to use.
 
 Usage
 -------
 
-Make sure HEASoft is installed and initialized so that NuSTARDAS commands can be used. Generate single-laser files by calling: 
+Make sure HEASoft is installed and initialized so that NuSTARDAS commands can be used. Generate single-laser psdcorr and mast files by calling: 
 
 ```bash
 create_singlelaser_files /path/to/observation/directory/sequenceid
@@ -36,8 +38,17 @@ create_singlelaser_files /path/to/observation/directory/sequenceid
 
 If you do not specify an observation directory, you will be prompted for one. The observation directory must contain the `/event_cl` and `/auxil` subdirectories. 
 
-This code generates 16 new files in the `/event_cl` subdirectory for the given observation. These are:
-* Simulated psdcorr and corrected mast files for each individual laser
+This code generates 4 new files in the `/event_cl` subdirectory for the given observation. These are:
+* Simulated psdcorr files for each individual laser
+* Simulated and corrected mast files for each individual laser
+
+Generate single-laser event files (assuming that simulated psdcorr and mast files have already been created) by calling: 
+
+```bash
+create_singlelaser_event_files /path/to/observation/directory/sequenceid /path/to/output/directory
+```
+
+This code generates 12 new files in the output directory for the given observation. These are:
 * OA and DET1 files for each individal laser, for FPMA and FPMB
 * Mode 07 (LASER0 only) and Mode 08 (LASER1 only) clean event files for FPMA and FPMB
 
