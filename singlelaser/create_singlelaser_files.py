@@ -9,6 +9,7 @@
     
     4. Create new event lists using new mast files and save them as mode 07 and 08
 '''
+__all__ = ['sinewave','generate_event_files','get_obs_details','check_directory','get_day_phase']
 
 import os, sys
 import dill as pickle
@@ -86,8 +87,8 @@ def create_singlelaser_files(obs_dir,run_nucoord=False):
     # 1. Create new estimated psdcorr file
     baseline = estimate_baseline(saa, obs_met)
     angle = translation_angle(saa)
-    print('Estimated PSD translation parameters: {:.2f} mm, {:.5f} rad'.format(baseline, angle))
-
+    print(f'Estimated PSD translation parameters: {baseline:.2f} mm, {angle:.5f} rad')
+    
     psdcorrnewfilename = {}
     psdcorroldfilename = os.path.join(event_cl_dir,f'nu{obsid}_psdcorr.fits')
     psdcorrnewfilename['0'] = os.path.join(event_cl_dir,f'nu{obsid}_psdcorr_sim0.fits')
@@ -108,30 +109,8 @@ def create_singlelaser_files(obs_dir,run_nucoord=False):
     phase_difference = phase_diff(saa)
 
     # Work out time offset from the orbit file
-    orbit_file = fits.open(os.path.join(auxil_dir,f'nu{obsid}_orb.fits'))
-    orb = orbit_file[1].data
-    orbit_file.close()
-
-    prev_day = orb['DAY'][0]
-    got_phase = 0
-    orbit_time = 0
-    for o in orb:
-        if (o['DAY'] == 1) and (prev_day == 0):
-            # It's a new orbit - break the loop
-            got_phase = 1
-            break
-        prev_day = o['DAY']
-        orbit_time += 1
-
-    if got_phase == 1:
-        # We can successfully obtain the phase
-        day_phase = (period - orbit_time) / period
-    else:
-        # Observation was too short - didn't start a new orbit so we don't know exact phase
-        # Minimum phase is 0, so calculate maximum and divide by two to get a best guess
-        # In the future, this could be improved by looking up the previous observation
-        # in order to get a more complete understanding of the orbital phase
-        day_phase = (period - orbit_time) / period / 2
+    orbit_file = os.path.join(auxil_dir,f'nu{obsid}_orb.fits')
+    day_phase = get_day_phase(orbit_file)
 
     predicted_sim_phase = day_phase - phase_difference
     time_offset = predicted_sim_phase * period
@@ -318,11 +297,16 @@ def get_obs_details(obsid):
     if not obs_sched:
         print('Environment variable OBS_SCHEDULE not set!')
         exit()
+        
+    if not obsid:
+        print('No Sequence ID passed to get_obs_details()')
+        exit()
     
     with open(obs_sched, 'r') as f:
         for line in f:
             if obsid in line:
                 details = line.split()
+                
                 start_time, saa = details[0], float(details[8])
                 obs_start_time = datetime.strptime(start_time, '%Y:%j:%H:%M:%S')
                 obs_met = (obs_start_time - datetime.strptime('2010-01-01', '%Y-%m-%d')).total_seconds()
@@ -357,6 +341,9 @@ def check_directory(obs_dir,laser=''):
     if not os.path.isdir(obs_dir):
         print('Observation directory does not exist')
         exit()
+        
+    # Take off hanging / if it is there
+    if obs_dir[-1] == '/': obs_dir = obs_dir[:-1]
     
     # Does it contain event_cl and auxil directories?
     event_cl_dir = os.path.join(obs_dir,'event_cl')
@@ -374,6 +361,49 @@ def check_directory(obs_dir,laser=''):
             exit()
     
     return obsid, event_cl_dir, auxil_dir
+    
+def get_day_phase(orbit_file):
+    '''
+        Function to calculate the day phase from the orbit file
+        
+        Parameters
+        ----------
+        orbit_file : string
+            Full path to an orbit file
+            
+        Returns
+        -------
+        day_phase : float
+            Phase in days at the beginning of the observation
+    '''
+    # Work out time offset from the orbit file
+    o = fits.open(orbit_file)
+    orb = o[1].data
+    o.close()
+
+    # Find the point at which a new day begins
+    prev_day = orb['DAY'][0]
+    got_phase = 0
+    orbit_time = 0
+    for o in orb:
+        if (o['DAY'] == 1) and (prev_day == 0):
+            # It's a new orbit - break the loop
+            got_phase = 1
+            break
+        prev_day = o['DAY']
+        orbit_time += 1
+
+    if got_phase == 1:
+        # We can successfully obtain the phase
+        day_phase = (period - orbit_time) / period
+    else:
+        # Observation was too short - didn't start a new orbit so we don't know exact phase
+        # Minimum phase is 0, so calculate maximum and divide by two to get a best guess
+        # In the future, this could be improved by looking up the previous observation
+        # in order to get a more complete understanding of the orbital phase
+        day_phase = (period - orbit_time) / period / 2
+        
+    return day_phase
 
 def main():
     # Check for observation directory from the command line

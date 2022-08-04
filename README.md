@@ -50,6 +50,14 @@ This code generates 12 new files in the output directory for the given observati
 * OA and DET1 files for each individal laser, for FPMA and FPMB
 * Mode 07 (LASER0 only) and Mode 08 (LASER1 only) clean event files for FPMA and FPMB
 
+Generate a single-laser performance results table by calling:
+
+```bash
+run_laser_trends /path/to/results/directory
+```
+
+This code will populate the single-laser event files of bright sources (>50000 estimated counts) in DATAHOME and either generate a table containing the performance results, or append results from new observations to that table.
+
 License
 -------
 

@@ -7,7 +7,8 @@ from astropy.io import fits
 from scipy.spatial.transform import Rotation as R
 from .caldb import read_caldb
 
-def translate_psd0_to_psd1(psdcorrfilename,psdcorrnewfilename,caldb_file,baseline=None,angle=None):
+def translate_psd0_to_psd1(psdcorrfilename,psdcorrnewfilename,caldb_file,
+                            baseline=None,angle=None):
     '''
         Translates PSD0 track to PSD1.
         If baseline and angle are passed, it will use these values to perform translation.
@@ -63,34 +64,36 @@ def translate_psd0_to_psd1(psdcorrfilename,psdcorrnewfilename,caldb_file,baselin
         baseline = np.median(np.sqrt((psd1_fb[:,0]-psd0_fb[:,0])**2 + (psd1_fb[:,1]-psd0_fb[:,1])**2))
         angle = np.arctan(np.median(psd1_fb[:,1]-psd0_fb[:,1])/np.median(psd1_fb[:,0]-psd0_fb[:,0]))
 
-    # Transform the PSD0 coordinates to PSD1
-    psd1_xnew = baseline*np.cos(angle) + psd0_fb[:,0]
-    psd1_ynew = baseline*np.sin(angle) + psd0_fb[:,1]
+    if psdcorrnewfilename:
+        # Transform the PSD0 coordinates to PSD1
+        psd1_xnew = baseline*np.cos(angle) + psd0_fb[:,0]
+        psd1_ynew = baseline*np.sin(angle) + psd0_fb[:,1]
 
-    # Revert new PSD0 track from FB to PSD coordinates
-    psd1_new = np.zeros((nn,3))
-    for i in range(nn):
-        # Apply rotation to the input vector
-        psd1_new[i] = q1.apply([psd1_xnew[i],psd1_ynew[i],0] - caldbmetrology['V_FB_MD1'])
-    
-    # Plant them into new updated psdcorr file
-    hdr['COMMENT'] = 'PSD1 values derived from PSD0 track'
-    hdr['COMMENT'] = f'Baseline: {baseline:.3f} mm, Angle: {angle:.5f} rad'
-    hdr['LASVALID'] = ('0', 'Laser used to create simulated PSD track')
-    met['X_PSD1'] = psd1_new[:,0]
-    met['Y_PSD1'] = psd1_new[:,1]
-    psdcorrfile[1].header = hdr
-    psdcorrfile[1].data = met
+        # Revert new PSD0 track from FB to PSD coordinates
+        psd1_new = np.zeros((nn,3))
+        for i in range(nn):
+            # Apply rotation to the input vector
+            psd1_new[i] = q1.apply([psd1_xnew[i],psd1_ynew[i],0] - caldbmetrology['V_FB_MD1'])
+        
+        # Plant them into new updated psdcorr file
+        hdr['COMMENT'] = 'PSD1 values derived from PSD0 track'
+        hdr['COMMENT'] = f'Baseline: {baseline:.3f} mm, Angle: {angle:.5f} rad'
+        hdr['LASVALID'] = ('0', 'Laser used to create simulated PSD track')
+        met['X_PSD1'] = psd1_new[:,0]
+        met['Y_PSD1'] = psd1_new[:,1]
+        psdcorrfile[1].header = hdr
+        psdcorrfile[1].data = met
 
-    psdcorrfile.writeto(psdcorrnewfilename, overwrite=True)
-    psdcorrfile.close()
+        psdcorrfile.writeto(psdcorrnewfilename, overwrite=True)
+        psdcorrfile.close()
     
     print(f"Translate PSD runtime: {time.time() - beat} s")
 
     return [baseline, angle]
 
 
-def translate_psd1_to_psd0(psdcorrfilename,psdcorrnewfilename,caldb_file,baseline=None,angle=None):
+def translate_psd1_to_psd0(psdcorrfilename,psdcorrnewfilename,caldb_file,
+                            baseline=None,angle=None):
     '''
         Translates PSD0 track to PSD1.
         If baseline and angle are passed, it will use these values to perform translation.
@@ -147,27 +150,28 @@ def translate_psd1_to_psd0(psdcorrfilename,psdcorrnewfilename,caldb_file,baselin
         angle = np.arctan(np.median(psd0_fb[:,1]-psd1_fb[:,1])/np.median(psd0_fb[:,0]-psd1_fb[:,0]))
         angle = np.pi + angle
 
-    # Transform the PSD0 coordinates to PSD1
-    psd0_xnew = baseline*np.cos(angle) + psd1_fb[:,0]
-    psd0_ynew = baseline*np.sin(angle) + psd1_fb[:,1]
+    if psdcorrnewfilename:
+        # Transform the PSD0 coordinates to PSD1
+        psd0_xnew = baseline*np.cos(angle) + psd1_fb[:,0]
+        psd0_ynew = baseline*np.sin(angle) + psd1_fb[:,1]
 
-    # Revert new PSD0 track from FB to PSD coordinates
-    psd0_new = np.zeros((nn,3))
-    for i in range(nn):
-        # Apply rotation to the input vector
-        psd0_new[i] = q0.apply([psd0_xnew[i],psd0_ynew[i],0] - caldbmetrology['V_FB_MD0'])
+        # Revert new PSD0 track from FB to PSD coordinates
+        psd0_new = np.zeros((nn,3))
+        for i in range(nn):
+            # Apply rotation to the input vector
+            psd0_new[i] = q0.apply([psd0_xnew[i],psd0_ynew[i],0] - caldbmetrology['V_FB_MD0'])
 
-    # Plant them into new updated psdcorr file
-    hdr['COMMENT'] = 'PSD0 values derived from PSD1 track'
-    hdr['COMMENT'] = f'Baseline: {baseline:.3f} mm, Angle: {angle:.5f} rad'
-    hdr['LASVALID'] = ('1', 'Laser used to create simulated PSD track')
-    met['X_PSD0'] = psd0_new[:,0]
-    met['Y_PSD0'] = psd0_new[:,1]
-    psdcorrfile[1].header = hdr
-    psdcorrfile[1].data = met
-    
-    psdcorrfile.writeto(psdcorrnewfilename, overwrite=True)
-    psdcorrfile.close()
+        # Plant them into new updated psdcorr file
+        hdr['COMMENT'] = 'PSD0 values derived from PSD1 track'
+        hdr['COMMENT'] = f'Baseline: {baseline:.3f} mm, Angle: {angle:.5f} rad'
+        hdr['LASVALID'] = ('1', 'Laser used to create simulated PSD track')
+        met['X_PSD0'] = psd0_new[:,0]
+        met['Y_PSD0'] = psd0_new[:,1]
+        psdcorrfile[1].header = hdr
+        psdcorrfile[1].data = met
+
+        psdcorrfile.writeto(psdcorrnewfilename, overwrite=True)
+        psdcorrfile.close()
     
     print(f"Translate PSD runtime: {time.time() - beat} s")
     
