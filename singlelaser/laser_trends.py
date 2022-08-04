@@ -1,7 +1,5 @@
-# Add this method to the nustar_singlelaser setup so it can be run anywhere
-# Install to my miniconda3 on bifrost to allow it to run
-
-__all__ = ['laser_trends']
+''' This program takes a provided data directory and generates single-laser performance results '''
+__all__ = ['laser_trends','plot_laser_trends']
 
 import os, sys
 import numpy as np
@@ -84,6 +82,7 @@ def laser_trends(fltops_dir,result_dir):
     high_count_obs = observations[count_est > 50000]
     
     # Now loop through the observations and check for 07 and 08 files
+    temp_mast = ''
     for o in high_count_obs:
         obsid = o['SEQUENCE_ID']
         target_dir = f'{obsid[:-3]}_{o["NAME"]}'
@@ -227,7 +226,8 @@ def laser_trends(fltops_dir,result_dir):
                 results.add_row(tuple(this_row))
                 
     # Remove temporary mast file
-    call(f'rm {temp_mast}', shell=True)
+    if temp_mast:
+        call(f'rm {temp_mast}', shell=True)
         
     # Write new table
     results.write(os.path.join(result_dir,results_file),
