@@ -24,7 +24,7 @@ from .caldb import get_alignment_file
 period = 5827.56 # seconds
 mast_length = 10545.8768 # mm
 
-def laser_trends(result_dir):
+def laser_trends(fltops_dir,result_dir):
     '''
         This function goes through bright observations, generates 07 and 08 files
         where necessary, creates or modifies a results table, and plots the
@@ -84,7 +84,6 @@ def laser_trends(result_dir):
     high_count_obs = observations[count_est > 50000]
     
     # Now loop through the observations and check for 07 and 08 files
-    fltops_dir = os.getenv('DATAHOME')
     for o in high_count_obs:
         obsid = o['SEQUENCE_ID']
         target_dir = f'{obsid[:-3]}_{o["NAME"]}'
@@ -361,12 +360,14 @@ def evt2img(event_list, pilow=35, pihigh=1909):
 
 def main():
     # Check for observation directory from the command line
-    if len(sys.argv) < 1:
+    if len(sys.argv) < 2:
+        fltops_dir = input('Data input directory: ')
         result_dir = input('Results output directory: ')
     else:
-        result_dir = sys.argv[1]
+        fltops_dir = sys.argv[1]
+        result_dir = sys.argv[2]
     
-    laser_trends(result_dir)
+    laser_trends(fltops_dir, result_dir)
     #plot_laser_trends(result_dir)
 
 if __name__ == '__main__':
