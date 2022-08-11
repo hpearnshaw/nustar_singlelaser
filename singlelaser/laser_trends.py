@@ -106,6 +106,12 @@ def laser_trends(fltops_dir,result_dir,sl_dir):
         if not os.path.isdir(obs_dir):
             print(f'Cannot find observation directory {obs_dir}; skipping...')
             continue
+            
+        # Check that mode 01 event files exist
+        orig_ev_files = [f'nu{obsid}A01_cl.evt',f'nu{obsid}B01_cl.evt']
+        if any(e not in os.listdir(cl_dir) for e in orig_ev_files):
+            print(f'No mode 01 files for {obsid}; skipping...')
+            continue
         
         # Check if mode 07 and mode 08 files exist yet
         sl_ev_files = [f'nu{obsid}A07_cl.evt',f'nu{obsid}B07_cl.evt',
