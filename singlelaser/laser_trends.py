@@ -106,6 +106,9 @@ def laser_trends(fltops_dir,result_dir,sl_dir):
         if not os.path.isdir(obs_dir):
             print(f'Cannot find observation directory {obs_dir}; skipping...')
             continue
+        if not os.path.isdir(cl_dir):
+            print(f'Cannot find event_cl directory {cl_dir}; skipping...')
+            continue
             
         # Check that mode 01 event files exist
         orig_ev_files = [f'nu{obsid}A01_cl.evt',f'nu{obsid}B01_cl.evt']
@@ -246,6 +249,11 @@ def laser_trends(fltops_dir,result_dir,sl_dir):
                                 sine_amp, amp_offset, time_offset, phase_diff,
                                 x_diff_est, y_diff_est, x_diff_a, y_diff_a]
                     results.add_row(tuple(this_row))
+                    
+                    # Write new table - put here temporarily while populating full table
+                    output = os.path.join(result_dir,results_file)
+                    print(f'Writing output to {output}')
+                    results.write(output, format='fits', overwrite=True)
                 
     # Remove temporary mast file if necessary
     if temp_mast:
