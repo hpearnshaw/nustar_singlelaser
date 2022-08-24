@@ -230,7 +230,7 @@ def laser_trends(fltops_dir,result_dir,sl_dir):
                         # Generate the singlelaser mast file before it was corrected
                         temp_mast = os.path.join(result_dir,'temp_mast_file.fits')
                         call(['numetrology','metflag=no',
-                              f'inpsdfilecor={original_psdcorr_file}',
+                              f'inpsdfilecor={psdcorr_file}',
                               f'mastaspectfile={temp_mast}','clobber=yes'])
                         sl_mast_file = fits.open(temp_mast)
                         sl_mast = sl_mast_file[1].data
