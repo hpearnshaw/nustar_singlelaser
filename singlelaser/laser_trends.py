@@ -96,6 +96,7 @@ def laser_trends(fltops_dir,result_dir,sl_dir):
     
     # Now loop through the observations and check for 07 and 08 files
     temp_mast = ''
+    new_rows = 0
     for o in high_count_obs:
         obsid = o['SEQUENCE_ID']
         target_dir = f'{obsid[:-3]}_{o["NAME"]}'
@@ -158,7 +159,6 @@ def laser_trends(fltops_dir,result_dir,sl_dir):
                         h, x, y, wx, wy, rot = -1, -1, -1, -1, -1, -1
                         
                     # Load up original files and fit original mast file
-                    original_psdcorr_file = os.path.join(cl_dir,f'nu{obsid}_psdcorr.fits')
                     original_mast_file = os.path.join(cl_dir,f'nu{obsid}_mast.fits')
                     m = fits.open(original_mast_file)
                     mast = m[1].data
@@ -250,20 +250,18 @@ def laser_trends(fltops_dir,result_dir,sl_dir):
                                 x_diff_est, y_diff_est, x_diff_a, y_diff_a]
                     results.add_row(tuple(this_row))
                     
-                    # Write new table - put here temporarily while populating full table
+                    # Write new table row
                     output = os.path.join(result_dir,results_file)
                     print(f'Writing output to {output}')
                     results.write(output, format='fits', overwrite=True)
-                
+                    new_rows += 1
+    
     # Remove temporary mast file if necessary
     if temp_mast:
         call(f'rm {temp_mast}', shell=True)
         
-    # Write new table
-    output = os.path.join(result_dir,results_file)
-    print(f'Writing output to {output}')
-    results.write(output, format='fits', overwrite=True)
-    
+    print(f'Complete: {new_rows} new rows written')
+    return new_rows
     
 def plot_laser_trends(result_dir):
     '''
@@ -285,17 +283,24 @@ def plot_laser_trends(result_dir):
         print(f'Cannot locate {results_file} in {result_dir}')
         exit()
     
+    # Get date and SAA
+    results = results[np.argsort(results['DATE'])]
+    start = np.array([datetime.fromisoformat(d) for d in results['DATE']])
+    startnum = mdates.date2num(start)
+    saa = results['SAA']
+    
     # Result file filters and derived columns
     fpma, fpmb = results['MOD'] == 'A', results['MOD'] == 'B'
     orig, laser0, laser1 = results['MODE'] == '01', results['MODE'] == '07', results['MODE'] == '08'
     semimajor = np.max([results['WX'],results['WY']],axis=0)
     semiminor = np.min([results['WX'],results['WY']],axis=0)
     e = semimajor/semiminor
-    start = np.array([datetime.fromisoformat(d) for d in results['DATE']])
-    startnum = mdates.date2num(start)
-    saa = results['SAA']
-    
-    # Filter for good fits (to-do)
+    goodfit = (semimajor < 20) & (semiminor < 20)
+    # Get phase diff onto the same line
+    day_phase_diff = results['PHASE_DIFF']
+    day_phase_diff[day_phase_diff < 0] += 1
+    day_phase_diff[day_phase_diff > 1] -= 1
+    day_phase_diff[day_phase_diff < (saa/40 - 2.5)] += 1
     
     # Load the splines/estimate functions
     with resources.open_binary('singlelaser.interpolators', 'sine_amp_interpolator.pkl') as f:
@@ -316,45 +321,57 @@ def plot_laser_trends(result_dir):
         estimate_baseline = pickle.load(f)
     with resources.open_binary('singlelaser.interpolators', 'translation_angle_interpolator.pkl') as f:
         translation_angle = pickle.load(f)
+    saa_axis = np.arange(0,180,0.2)
         
     # Setup colorbar maps for SAA and date
     saanorm = matplotlib.colors.Normalize(vmin=0,vmax=180)
     saamap = matplotlib.cm.ScalarMappable(norm=saanorm,cmap='rainbow')
     startnorm = matplotlib.colors.Normalize(vmin=np.min(startnum),vmax=np.max(startnum))
     startmap = matplotlib.cm.ScalarMappable(norm=startnorm,cmap='viridis')
+    residnorm = matplotlib.colors.Normalize(vmin=-1,vmax=1)
+    residmap = matplotlib.cm.ScalarMappable(norm=residnorm,cmap='RdBu_r')
 
     # Produce plots of fit quality/parameters vs time and SAA
     # in a multi-page PDF file
     font = {'size' : 16, 'family' : 'sans-serif'}
     matplotlib.rc('font', **font)
     with PdfPages(os.path.join(result_dir,'laser_trends.pdf')) as pdf:
-    
+        
         # Semimajor axis by time
         fig, axs = plt.subplots(3, 1, sharex=True, figsize=[14,12])
         axs[0].set_title('PSF semimajor axis vs Time')
-        axs[0].scatter(start[orig & fpma],semimajor[orig & fpma], c=saa[orig & fpma],
-                        cmap='rainbow',norm=saanorm,marker='o',edgecolors='k',label='FPMA')
-        axs[0].scatter(start[orig & fpmb],semimajor[orig & fpmb],c=saa[orig & fpmb],
-                        cmap='rainbow',norm=saanorm,marker='^',edgecolors='k',label='FPMB')
+        axs[0].scatter(start[orig & fpma & goodfit],semimajor[orig & fpma & goodfit],
+                        c=saa[orig & fpma & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k',label='FPMA')
+        axs[0].scatter(start[orig & fpmb & goodfit],semimajor[orig & fpmb & goodfit],
+                        c=saa[orig & fpmb & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='^',edgecolors='k',label='FPMB')
         axs[0].text(0.5, 0.9, 'Two lasers (original)',
                     horizontalalignment='center', transform=axs[0].transAxes)
+        axs[0].set_ylim([5,19])
         axs[0].legend()
         
-        axs[1].scatter(start[laser0 & fpma],semimajor[laser0 & fpma],c=saa[laser0 & fpma],
-                        cmap='rainbow',norm=saanorm,marker='o',edgecolors='k')
-        axs[1].scatter(start[laser0 & fpmb],semimajor[laser0 & fpmb],c=saa[laser0 & fpmb],
-                        cmap='rainbow',norm=saanorm,marker='^',edgecolors='k')
+        axs[1].scatter(start[laser0 & fpma & goodfit],semimajor[laser0 & fpma & goodfit],
+                        c=saa[laser0 & fpma & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k')
+        axs[1].scatter(start[laser0 & fpmb & goodfit],semimajor[laser0 & fpmb & goodfit],
+                        c=saa[laser0 & fpmb & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='^',edgecolors='k')
         axs[1].set_ylabel('Semimajor axis (pixels)')
         axs[1].text(0.5, 0.9, 'LASER0',
                     horizontalalignment='center', transform=axs[1].transAxes)
+        axs[1].set_ylim([5,19])
         
-        axs[2].scatter(start[laser1 & fpma],semimajor[laser1 & fpma],c=saa[laser1 & fpma],
-                        cmap='rainbow',norm=saanorm,marker='o',edgecolors='k')
-        axs[2].scatter(start[laser1 & fpmb],semimajor[laser1 & fpmb],c=saa[laser1 & fpmb],
-                        cmap='rainbow',norm=saanorm,marker='^',edgecolors='k')
+        axs[2].scatter(start[laser1 & fpma & goodfit],semimajor[laser1 & fpma & goodfit],
+                        c=saa[laser1 & fpma & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k')
+        axs[2].scatter(start[laser1 & fpmb & goodfit],semimajor[laser1 & fpmb & goodfit],
+                        c=saa[laser1 & fpmb & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='^',edgecolors='k')
         axs[2].set_xlabel('Date')
         axs[2].text(0.5, 0.9, 'LASER1',
                     horizontalalignment='center', transform=axs[2].transAxes)
+        axs[2].set_ylim([5,19])
         plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
         fig.colorbar(saamap, ax=axs[:], shrink=0.8, location='right',label='SAA')
         pdf.savefig()
@@ -363,30 +380,39 @@ def plot_laser_trends(result_dir):
         # Semimajor axis by SAA
         fig, axs = plt.subplots(3, 1, sharex=True, figsize=[14,12])
         axs[0].set_title('PSF semimajor axis vs SAA')
-        axs[0].scatter(saa[orig & fpma],semimajor[orig & fpma], c=startnum[orig & fpma],
-                        cmap='viridis',norm=startnorm,marker='o',edgecolors='k',label='FPMA')
-        axs[0].scatter(saa[orig & fpmb],semimajor[orig & fpmb],c=startnum[orig & fpmb],
-                        cmap='viridis',norm=startnorm,marker='^',edgecolors='k',label='FPMB')
+        axs[0].scatter(saa[orig & fpma & goodfit],semimajor[orig & fpma & goodfit],
+                        c=startnum[orig & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k',label='FPMA')
+        axs[0].scatter(saa[orig & fpmb & goodfit],semimajor[orig & fpmb & goodfit],
+                        c=startnum[orig & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k',label='FPMB')
         axs[0].text(0.5, 0.9, 'Two lasers (original)',
                     horizontalalignment='center', transform=axs[0].transAxes)
         axs[0].legend()
         axs[0].set_xlim(0,180)
+        axs[0].set_ylim([5,19])
         
-        axs[1].scatter(saa[laser0 & fpma],semimajor[laser0 & fpma],c=startnum[laser0 & fpma],
-                        cmap='viridis',norm=startnorm,marker='o',edgecolors='k')
-        axs[1].scatter(saa[laser0 & fpmb],semimajor[laser0 & fpmb],c=startnum[laser0 & fpmb],
-                        cmap='viridis',norm=startnorm,marker='^',edgecolors='k')
+        axs[1].scatter(saa[laser0 & fpma & goodfit],semimajor[laser0 & fpma & goodfit],
+                        c=startnum[laser0 & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[1].scatter(saa[laser0 & fpmb & goodfit],semimajor[laser0 & fpmb & goodfit],
+                        c=startnum[laser0 & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k')
         axs[1].set_ylabel('Semimajor axis (pixels)')
         axs[1].text(0.5, 0.9, 'LASER0',
                     horizontalalignment='center', transform=axs[1].transAxes)
+        axs[1].set_ylim([5,19])
         
-        axs[2].scatter(saa[laser1 & fpma],semimajor[laser1 & fpma],c=startnum[laser1 & fpma],
-                        cmap='viridis',norm=startnorm,marker='o',edgecolors='k')
-        axs[2].scatter(saa[laser1 & fpmb],semimajor[laser1 & fpmb],c=startnum[laser1 & fpmb],
-                        cmap='viridis',norm=startnorm,marker='^',edgecolors='k')
+        axs[2].scatter(saa[laser1 & fpma & goodfit],semimajor[laser1 & fpma & goodfit],
+                        c=startnum[laser1 & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[2].scatter(saa[laser1 & fpmb & goodfit],semimajor[laser1 & fpmb & goodfit],
+                        c=startnum[laser1 & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k')
         axs[2].set_xlabel('SAA')
         axs[2].text(0.5, 0.9, 'LASER1',
                     horizontalalignment='center', transform=axs[2].transAxes)
+        axs[2].set_ylim([5,19])
         plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
         cbar = fig.colorbar(startmap, ax=axs[:], shrink=0.8, location='right',
                             label='Date', ticks=mdates.YearLocator(),
@@ -397,29 +423,38 @@ def plot_laser_trends(result_dir):
         # Semiminor axis by time
         fig, axs = plt.subplots(3, 1, sharex=True, figsize=[14,12])
         axs[0].set_title('PSF semiminor axis vs Time')
-        axs[0].scatter(start[orig & fpma],semiminor[orig & fpma], c=saa[orig & fpma],
-                        cmap='rainbow',norm=saanorm,marker='o',edgecolors='k',label='FPMA')
-        axs[0].scatter(start[orig & fpmb],semiminor[orig & fpmb],c=saa[orig & fpmb],
-                        cmap='rainbow',norm=saanorm,marker='^',edgecolors='k',label='FPMB')
+        axs[0].scatter(start[orig & fpma & goodfit],semiminor[orig & fpma & goodfit],
+                        c=saa[orig & fpma & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k',label='FPMA')
+        axs[0].scatter(start[orig & fpmb & goodfit],semiminor[orig & fpmb & goodfit],
+                        c=saa[orig & fpmb & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='^',edgecolors='k',label='FPMB')
         axs[0].text(0.5, 0.9, 'Two lasers (original)',
                     horizontalalignment='center', transform=axs[0].transAxes)
         axs[0].legend()
+        axs[0].set_ylim([4.1,15.9])
         
-        axs[1].scatter(start[laser0 & fpma],semiminor[laser0 & fpma],c=saa[laser0 & fpma],
-                        cmap='rainbow',norm=saanorm,marker='o',edgecolors='k')
-        axs[1].scatter(start[laser0 & fpmb],semiminor[laser0 & fpmb],c=saa[laser0 & fpmb],
-                        cmap='rainbow',norm=saanorm,marker='^',edgecolors='k')
+        axs[1].scatter(start[laser0 & fpma & goodfit],semiminor[laser0 & fpma & goodfit],
+                        c=saa[laser0 & fpma & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k')
+        axs[1].scatter(start[laser0 & fpmb & goodfit],semiminor[laser0 & fpmb & goodfit],
+                        c=saa[laser0 & fpmb & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='^',edgecolors='k')
         axs[1].set_ylabel('Semiminor axis (pixels)')
         axs[1].text(0.5, 0.9, 'LASER0',
                     horizontalalignment='center', transform=axs[1].transAxes)
+        axs[1].set_ylim([4.1,15.9])
         
-        axs[2].scatter(start[laser1 & fpma],semiminor[laser1 & fpma],c=saa[laser1 & fpma],
-                        cmap='rainbow',norm=saanorm,marker='o',edgecolors='k')
-        axs[2].scatter(start[laser1 & fpmb],semiminor[laser1 & fpmb],c=saa[laser1 & fpmb],
-                        cmap='rainbow',norm=saanorm,marker='^',edgecolors='k')
+        axs[2].scatter(start[laser1 & fpma & goodfit],semiminor[laser1 & fpma & goodfit],
+                        c=saa[laser1 & fpma & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k')
+        axs[2].scatter(start[laser1 & fpmb & goodfit],semiminor[laser1 & fpmb & goodfit],
+                        c=saa[laser1 & fpmb & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='^',edgecolors='k')
         axs[2].set_xlabel('Date')
         axs[2].text(0.5, 0.9, 'LASER1',
                     horizontalalignment='center', transform=axs[2].transAxes)
+        axs[2].set_ylim([4.1,15.9])
         plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
         fig.colorbar(saamap, ax=axs[:], shrink=0.8, location='right',label='SAA')
         pdf.savefig()
@@ -428,30 +463,39 @@ def plot_laser_trends(result_dir):
         # Semiminor axis by SAA
         fig, axs = plt.subplots(3, 1, sharex=True, figsize=[14,12])
         axs[0].set_title('PSF semiminor axis vs SAA')
-        axs[0].scatter(saa[orig & fpma],semiminor[orig & fpma], c=startnum[orig & fpma],
-                        cmap='viridis',norm=startnorm,marker='o',edgecolors='k',label='FPMA')
-        axs[0].scatter(saa[orig & fpmb],semiminor[orig & fpmb],c=startnum[orig & fpmb],
-                        cmap='viridis',norm=startnorm,marker='^',edgecolors='k',label='FPMB')
+        axs[0].scatter(saa[orig & fpma & goodfit],semiminor[orig & fpma & goodfit],
+                        c=startnum[orig & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k',label='FPMA')
+        axs[0].scatter(saa[orig & fpmb & goodfit],semiminor[orig & fpmb & goodfit],
+                        c=startnum[orig & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k',label='FPMB')
         axs[0].text(0.5, 0.9, 'Two lasers (original)',
                     horizontalalignment='center', transform=axs[0].transAxes)
         axs[0].legend()
         axs[0].set_xlim(0,180)
+        axs[0].set_ylim([4.1,15.9])
         
-        axs[1].scatter(saa[laser0 & fpma],semiminor[laser0 & fpma],c=startnum[laser0 & fpma],
-                        cmap='viridis',norm=startnorm,marker='o',edgecolors='k')
-        axs[1].scatter(saa[laser0 & fpmb],semiminor[laser0 & fpmb],c=startnum[laser0 & fpmb],
-                        cmap='viridis',norm=startnorm,marker='^',edgecolors='k')
+        axs[1].scatter(saa[laser0 & fpma & goodfit],semiminor[laser0 & fpma & goodfit],
+                        c=startnum[laser0 & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[1].scatter(saa[laser0 & fpmb & goodfit],semiminor[laser0 & fpmb & goodfit],
+                        c=startnum[laser0 & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k')
         axs[1].set_ylabel('Semiminor axis (pixels)')
         axs[1].text(0.5, 0.9, 'LASER0',
                     horizontalalignment='center', transform=axs[1].transAxes)
+        axs[1].set_ylim([4.1,15.9])
         
-        axs[2].scatter(saa[laser1 & fpma],semiminor[laser1 & fpma],c=startnum[laser1 & fpma],
-                        cmap='viridis',norm=startnorm,marker='o',edgecolors='k')
-        axs[2].scatter(saa[laser1 & fpmb],semiminor[laser1 & fpmb],c=startnum[laser1 & fpmb],
-                        cmap='viridis',norm=startnorm,marker='^',edgecolors='k')
+        axs[2].scatter(saa[laser1 & fpma & goodfit],semiminor[laser1 & fpma & goodfit],
+                        c=startnum[laser1 & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[2].scatter(saa[laser1 & fpmb & goodfit],semiminor[laser1 & fpmb & goodfit],
+                        c=startnum[laser1 & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k')
         axs[2].set_xlabel('SAA')
         axs[2].text(0.5, 0.9, 'LASER1',
                     horizontalalignment='center', transform=axs[2].transAxes)
+        axs[2].set_ylim([4.1,15.9])
         plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
         cbar = fig.colorbar(startmap, ax=axs[:], shrink=0.8, location='right',
                             label='Date', ticks=mdates.YearLocator(),
@@ -462,29 +506,38 @@ def plot_laser_trends(result_dir):
         # Axis ratio by time
         fig, axs = plt.subplots(3, 1, sharex=True, figsize=[14,12])
         axs[0].set_title('PSF elongation vs Time')
-        axs[0].scatter(start[orig & fpma],e[orig & fpma], c=saa[orig & fpma],
-                        cmap='rainbow',norm=saanorm,marker='o',edgecolors='k',label='FPMA')
-        axs[0].scatter(start[orig & fpmb],e[orig & fpmb],c=saa[orig & fpmb],
-                        cmap='rainbow',norm=saanorm,marker='^',edgecolors='k',label='FPMB')
+        axs[0].scatter(start[orig & fpma & goodfit],e[orig & fpma & goodfit],
+                        c=saa[orig & fpma & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k',label='FPMA')
+        axs[0].scatter(start[orig & fpmb & goodfit],e[orig & fpmb & goodfit],
+                        c=saa[orig & fpmb & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='^',edgecolors='k',label='FPMB')
         axs[0].text(0.5, 0.9, 'Two lasers (original)',
                     horizontalalignment='center', transform=axs[0].transAxes)
         axs[0].legend()
+        axs[0].set_ylim([0.9,2.4])
         
-        axs[1].scatter(start[laser0 & fpma],e[laser0 & fpma],c=saa[laser0 & fpma],
-                        cmap='rainbow',norm=saanorm,marker='o',edgecolors='k')
-        axs[1].scatter(start[laser0 & fpmb],e[laser0 & fpmb],c=saa[laser0 & fpmb],
-                        cmap='rainbow',norm=saanorm,marker='^',edgecolors='k')
+        axs[1].scatter(start[laser0 & fpma & goodfit],e[laser0 & fpma & goodfit],
+                        c=saa[laser0 & fpma & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k')
+        axs[1].scatter(start[laser0 & fpmb & goodfit],e[laser0 & fpmb & goodfit],
+                        c=saa[laser0 & fpmb & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='^',edgecolors='k')
         axs[1].set_ylabel('Axis ratio a/b')
         axs[1].text(0.5, 0.9, 'LASER0',
                     horizontalalignment='center', transform=axs[1].transAxes)
+        axs[1].set_ylim([0.9,2.4])
         
-        axs[2].scatter(start[laser1 & fpma],e[laser1 & fpma],c=saa[laser1 & fpma],
-                        cmap='rainbow',norm=saanorm,marker='o',edgecolors='k')
-        axs[2].scatter(start[laser1 & fpmb],e[laser1 & fpmb],c=saa[laser1 & fpmb],
-                        cmap='rainbow',norm=saanorm,marker='^',edgecolors='k')
+        axs[2].scatter(start[laser1 & fpma & goodfit],e[laser1 & fpma & goodfit],
+                        c=saa[laser1 & fpma & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k')
+        axs[2].scatter(start[laser1 & fpmb & goodfit],e[laser1 & fpmb & goodfit],
+                        c=saa[laser1 & fpmb & goodfit],cmap='rainbow',
+                        norm=saanorm,marker='^',edgecolors='k')
         axs[2].set_xlabel('Date')
         axs[2].text(0.5, 0.9, 'LASER1',
                     horizontalalignment='center', transform=axs[2].transAxes)
+        axs[2].set_ylim([0.9,2.4])
         plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
         fig.colorbar(saamap, ax=axs[:], shrink=0.8, location='right',label='SAA')
         pdf.savefig()
@@ -493,30 +546,39 @@ def plot_laser_trends(result_dir):
         # Axis ratio by SAA
         fig, axs = plt.subplots(3, 1, sharex=True, figsize=[14,12])
         axs[0].set_title('PSF elongation vs SAA')
-        axs[0].scatter(saa[orig & fpma],e[orig & fpma], c=startnum[orig & fpma],
-                        cmap='viridis',norm=startnorm,marker='o',edgecolors='k',label='FPMA')
-        axs[0].scatter(saa[orig & fpmb],e[orig & fpmb],c=startnum[orig & fpmb],
-                        cmap='viridis',norm=startnorm,marker='^',edgecolors='k',label='FPMB')
+        axs[0].scatter(saa[orig & fpma & goodfit],e[orig & fpma & goodfit],
+                        c=startnum[orig & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k',label='FPMA')
+        axs[0].scatter(saa[orig & fpmb & goodfit],e[orig & fpmb & goodfit],
+                        c=startnum[orig & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k',label='FPMB')
         axs[0].text(0.5, 0.9, 'Two lasers (original)',
                     horizontalalignment='center', transform=axs[0].transAxes)
         axs[0].legend()
         axs[0].set_xlim(0,180)
+        axs[0].set_ylim([0.9,2.4])
         
-        axs[1].scatter(saa[laser0 & fpma],e[laser0 & fpma],c=startnum[laser0 & fpma],
-                        cmap='viridis',norm=startnorm,marker='o',edgecolors='k')
-        axs[1].scatter(saa[laser0 & fpmb],e[laser0 & fpmb],c=startnum[laser0 & fpmb],
-                        cmap='viridis',norm=startnorm,marker='^',edgecolors='k')
+        axs[1].scatter(saa[laser0 & fpma & goodfit],e[laser0 & fpma & goodfit],
+                        c=startnum[laser0 & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[1].scatter(saa[laser0 & fpmb & goodfit],e[laser0 & fpmb & goodfit],
+                        c=startnum[laser0 & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k')
         axs[1].set_ylabel('Axis ratio a/b')
         axs[1].text(0.5, 0.9, 'LASER0',
                     horizontalalignment='center', transform=axs[1].transAxes)
+        axs[1].set_ylim([0.9,2.4])
         
-        axs[2].scatter(saa[laser1 & fpma],e[laser1 & fpma],c=startnum[laser1 & fpma],
-                        cmap='viridis',norm=startnorm,marker='o',edgecolors='k')
-        axs[2].scatter(saa[laser1 & fpmb],e[laser1 & fpmb],c=startnum[laser1 & fpmb],
-                        cmap='viridis',norm=startnorm,marker='^',edgecolors='k')
+        axs[2].scatter(saa[laser1 & fpma & goodfit],e[laser1 & fpma & goodfit],
+                        c=startnum[laser1 & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[2].scatter(saa[laser1 & fpmb & goodfit],e[laser1 & fpmb & goodfit],
+                        c=startnum[laser1 & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k')
         axs[2].set_xlabel('SAA')
         axs[2].text(0.5, 0.9, 'LASER1',
                     horizontalalignment='center', transform=axs[2].transAxes)
+        axs[2].set_ylim([0.9,2.4])
         plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
         cbar = fig.colorbar(startmap, ax=axs[:], shrink=0.8, location='right',
                             label='Date', ticks=mdates.YearLocator(),
@@ -524,20 +586,143 @@ def plot_laser_trends(result_dir):
         pdf.savefig()
         plt.close()
         
-
-        
         # Baseline and angle by SAA and time (plus models)
+        dateticks = [mdates.date2num(datetime.strptime(str(y), '%Y')) for y in np.arange(2013,2023)]
+        torigin = datetime.strptime('2010','%Y')
+        x = saa[orig & fpma]
+        y = np.array([t.total_seconds()
+                      for t in (start[orig & fpma] - torigin)])
+        z = results[orig & fpma]['BASELINE']
+        lin_x, lin_y = np.linspace(0,180,181), np.linspace(5,40,201)*1.e7
+        grid_x, grid_y = np.meshgrid(lin_x, lin_y)
+        grid_z = estimate_baseline(grid_x, grid_y)
+        residuals = z - estimate_baseline(x,y)
         
+        # Turn y-axis to date
+        y_dates = mdates.date2num(start[orig & fpma])
+        grid_y_dates = mdates.date2num(np.datetime64('2010') + grid_y.astype('timedelta64[s]'))
         
-        # baseline residuals by time colored by saa
+        fig = plt.figure(figsize=[14,12])
+        ax = plt.subplot2grid(shape=(3, 1),loc=(0, 0),rowspan=2,projection='3d')
+        ax.set_title('Baseline vs SAA and Time (with estimator)')
+        ax.view_init(25, 340)
+        ax.plot_wireframe(grid_x, grid_y_dates, grid_z, color='black', rcount=20, ccount=20)
+        ax.scatter3D(x,y_dates,z,c=y,cmap='viridis',marker='o',edgecolors='k')
+        ax.scatter3D(x,y_dates,[802]*len(residuals),c=residuals,cmap='RdBu_r',norm=residnorm)
+        ax.set_zlim([802,805])
+        ax.set_xlabel('\nSAA     ')
+        ax.set_ylabel('\n\nDate')
+        ax.set_zlabel('\n\n\nBASELINE (mm)')
+        ax.yaxis.set_ticks(dateticks)
+        ax.yaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+        ax.yaxis.set_tick_params(pad=-4, rotation = -40)
+        ax.zaxis.set_tick_params(pad=8)
+        c = plt.colorbar(residmap, shrink=0.6, label='RESIDUAL (mm)', pad=0.15)
+        # Baseline residuals by time colored by saa
+        ax2 = plt.subplot2grid(shape=(3, 1),loc=(2, 0))
+        ax2.set_title('Baseline residuals')
+        ax2.scatter(y_dates,residuals,marker='o',edgecolors='k',c=x,cmap='rainbow',norm=saanorm)
+        ax2.set_xlabel('Date')
+        ax2.set_ylabel('Baseline residual (mm)')
+        ax2.xaxis.set_ticks(dateticks)
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+        fig.colorbar(saamap, ax=ax2, location='right',label='SAA')
+        pdf.savefig()
+        plt.close()
         
-        # Twist angle parameters by SAA and time
+        # Translation angle by SAA and time
+        fig, axs = plt.subplots(2, 1, figsize=[14,12])
+        axs[0].set_title('Translation Angle vs SAA')
+        axs[0].scatter(saa[orig & fpma], results['ANGLE'][orig & fpma],
+                       c=startnum[orig & fpma],cmap='viridis',
+                       norm=startnorm,marker='o',edgecolors='k')
+        axs[0].plot(saa_axis,translation_angle(saa_axis),color='r')
+        axs[0].set_xlabel('SAA')
+        axs[0].set_ylabel('Angle (rad)')
+        axs[1].set_title('Translation Angle Residuals vs Time')
+        axs[1].scatter(start[orig & fpma],
+                       results['ANGLE'][orig & fpma] - translation_angle(saa[orig & fpma]),
+                       c=saa[orig & fpma],cmap='rainbow',
+                       norm=saanorm,marker='o',edgecolors='k')
+        axs[1].set_xlabel('Date')
+        axs[1].set_ylabel('Angle residual (rad)')
+        plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0.25)
+        fig.colorbar(startmap, ax=axs[0], location='right',label='Date',
+                     ticks=mdates.YearLocator(),format=mdates.DateFormatter('%Y'))
+        fig.colorbar(saamap, ax=axs[1], location='right',label='SAA')
+        pdf.savefig()
+        plt.close()
         
-        # Diffs by SAA and time (both directions)
-    
-
-    
-    return True
+        # Twist angle parameters (mean, amp, phase) by SAA
+        fig, axs = plt.subplots(3, 1, sharex=True, figsize=[14,12])
+        axs[0].set_title('Mast Twist Angle parameters vs SAA')
+        axs[0].scatter(saa[orig & fpma],results['AMP_OFFSET'][orig & fpma],
+                        c=startnum[orig & fpma],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[0].plot(saa_axis,sine_mean(saa_axis),color='r')
+        axs[0].set_ylabel('Mean angle (rad)')
+        axs[1].scatter(saa[orig & fpma],results['AMP'][orig & fpma],
+                        c=startnum[orig & fpma],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[1].plot(saa_axis,sine_amp(saa_axis),color='r')
+        axs[1].set_ylabel('Amplitude (rad)')
+        axs[2].scatter(saa[orig & fpma],day_phase_diff[orig & fpma],
+                        c=startnum[orig & fpma],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[2].plot(saa_axis,phase_diff(saa_axis),color='r')
+        axs[2].set_ylabel('Phase Diff')
+        axs[2].set_xlabel('SAA')
+        plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
+        cbar = fig.colorbar(startmap, ax=axs[:], shrink=0.8, location='right',
+                            label='Date', ticks=mdates.YearLocator(),
+                            format=mdates.DateFormatter('%Y'))
+        pdf.savefig()
+        plt.close()
+        
+        # Twist angle residuals vs Time? (to-do)
+        
+        # Amplitude diff (Laser 0 and 1)
+        fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,12])
+        axs[0].set_title('Translation diff vs SAA (LASER0)')
+        axs[0].scatter(saa[laser0 & fpma],results['X_DIFF_ACTUAL'][laser0 & fpma],
+                        c=startnum[laser0 & fpma],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[0].plot(saa_axis,x_amp_diff_0to1(saa_axis),color='r')
+        axs[0].set_ylabel('X transform amp diff (mm)')
+        axs[1].scatter(saa[laser0 & fpma],results['Y_DIFF_ACTUAL'][laser0 & fpma],
+                        c=startnum[laser0 & fpma],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[1].plot(saa_axis,y_amp_diff_0to1(saa_axis),color='r')
+        axs[1].set_ylabel('Y transform amp diff (mm)')
+        axs[1].set_xlabel('SAA')
+        plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
+        cbar = fig.colorbar(startmap, ax=axs[:], shrink=0.8, location='right',
+                            label='Date', ticks=mdates.YearLocator(),
+                            format=mdates.DateFormatter('%Y'))
+        pdf.savefig()
+        plt.close()
+        
+        fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,12])
+        axs[0].set_title('Translation diff vs SAA (LASER1)')
+        axs[0].scatter(saa[laser1 & fpma],results['X_DIFF_ACTUAL'][laser1 & fpma],
+                        c=startnum[laser1 & fpma],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[0].plot(saa_axis,x_amp_diff_1to0(saa_axis),color='r')
+        axs[0].set_ylabel('X transform amp diff (mm)')
+        axs[1].scatter(saa[laser1 & fpma],results['Y_DIFF_ACTUAL'][laser1 & fpma],
+                        c=startnum[laser1 & fpma],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[1].plot(saa_axis,y_amp_diff_1to0(saa_axis),color='r')
+        axs[1].set_ylabel('Y transform amp diff (mm)')
+        axs[1].set_xlabel('SAA')
+        plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
+        cbar = fig.colorbar(startmap, ax=axs[:], shrink=0.8, location='right',
+                            label='Date', ticks=mdates.YearLocator(),
+                            format=mdates.DateFormatter('%Y'))
+        pdf.savefig()
+        plt.close()
+        
+        # Amplitude diff residuals vs Time? (to-do)
 
 def evt2img(event_list, pilow=35, pihigh=1909):
     '''
@@ -579,8 +764,9 @@ def main():
         result_dir = sys.argv[2]
         sl_dir = sys.argv[3]
     
-    laser_trends(fltops_dir, result_dir, sl_dir)
-    #plot_laser_trends(result_dir)
+    new_rows = laser_trends(fltops_dir, result_dir, sl_dir)
+    if new_rows > 0:
+        plot_laser_trends(result_dir)
 
 if __name__ == '__main__':
     main()
