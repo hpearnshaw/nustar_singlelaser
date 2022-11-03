@@ -644,6 +644,7 @@ def plot_laser_trends(result_dir):
                        results['ANGLE'][orig & fpma] - translation_angle(saa[orig & fpma]),
                        c=saa[orig & fpma],cmap='rainbow',
                        norm=saanorm,marker='o',edgecolors='k')
+        axs[1].axhline(ls='--',c='gray')
         axs[1].set_xlabel('Date')
         axs[1].set_ylabel('Angle residual (rad)')
         plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0.25)
@@ -679,9 +680,35 @@ def plot_laser_trends(result_dir):
         pdf.savefig()
         plt.close()
         
-        # Twist angle residuals vs Time? (to-do)
+        # Twist angle residuals vs Time
+        fig, axs = plt.subplots(3, 1, sharex=True, figsize=[14,12])
+        axs[0].set_title('Mast Twist Angle residuals')
+        axs[0].scatter(start[orig & fpma],
+                        results['AMP_OFFSET'][orig & fpma] - sine_mean(saa[orig & fpma]),
+                        c=saa[orig & fpma],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k')
+        axs[0].axhline(ls='--',c='gray')
+        axs[0].set_ylabel('Mean angle (rad)')
+        axs[1].scatter(start[orig & fpma],
+                        results['AMP'][orig & fpma] - sine_amp(saa[orig & fpma]),
+                        c=saa[orig & fpma],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k')
+        axs[1].set_ylabel('Amplitude (rad)')
+        axs[1].axhline(ls='--',c='gray')
+        axs[2].scatter(start[orig & fpma],
+                        day_phase_diff[orig & fpma] - phase_diff(saa[orig & fpma]),
+                        c=saa[orig & fpma],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k')
+        axs[2].axhline(ls='--',c='gray')
+        axs[2].set_ylabel('Phase Diff')
+        axs[2].set_xlabel('Date')
+        plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
+        cbar = fig.colorbar(saamap, ax=axs[:], shrink=0.8, location='right',
+                            label='SAA')
+        pdf.savefig()
+        plt.close()
         
-        # Amplitude diff (Laser 0 and 1)
+        # Amplitude diff and residuals (Laser 0)
         fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,12])
         axs[0].set_title('Translation diff vs SAA (LASER0)')
         axs[0].scatter(saa[laser0 & fpma],results['X_DIFF_ACTUAL'][laser0 & fpma],
@@ -703,6 +730,28 @@ def plot_laser_trends(result_dir):
         plt.close()
         
         fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,12])
+        axs[0].set_title('Translation diff residuals (LASER0)')
+        axs[0].scatter(start[laser0 & fpma],
+                        results['X_DIFF_ACTUAL'][laser0 & fpma] - x_amp_diff_0to1(saa[laser0 & fpma]),
+                        c=saa[laser0 & fpma],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k')
+        axs[0].axhline(ls='--',c='gray')
+        axs[0].set_ylabel('X transform amp diff (mm)')
+        axs[1].scatter(start[laser0 & fpma],
+                        results['Y_DIFF_ACTUAL'][laser0 & fpma] - y_amp_diff_0to1(saa[laser0 & fpma]),
+                        c=saa[laser0 & fpma],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k')
+        axs[1].axhline(ls='--',c='gray')
+        axs[1].set_ylabel('Y transform amp diff (mm)')
+        axs[1].set_xlabel('Date')
+        plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
+        cbar = fig.colorbar(saamap, ax=axs[:], shrink=0.8, location='right',
+                            label='SAA')
+        pdf.savefig()
+        plt.close()
+        
+        # Amplitude diff and residuals (Laser 1)
+        fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,12])
         axs[0].set_title('Translation diff vs SAA (LASER1)')
         axs[0].scatter(saa[laser1 & fpma],results['X_DIFF_ACTUAL'][laser1 & fpma],
                         c=startnum[laser1 & fpma],cmap='viridis',
@@ -722,7 +771,26 @@ def plot_laser_trends(result_dir):
         pdf.savefig()
         plt.close()
         
-        # Amplitude diff residuals vs Time? (to-do)
+        fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,12])
+        axs[0].set_title('Translation diff residuals (LASER1)')
+        axs[0].scatter(start[laser1 & fpma],
+                        results['X_DIFF_ACTUAL'][laser1 & fpma] - x_amp_diff_1to0(saa[laser1 & fpma]),
+                        c=saa[laser1 & fpma],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k')
+        axs[0].axhline(ls='--',c='gray')
+        axs[0].set_ylabel('X transform amp diff (mm)')
+        axs[1].scatter(start[laser1 & fpma],
+                        results['Y_DIFF_ACTUAL'][laser1 & fpma] - y_amp_diff_1to0(saa[laser1 & fpma]),
+                        c=saa[laser1 & fpma],cmap='rainbow',
+                        norm=saanorm,marker='o',edgecolors='k')
+        axs[1].axhline(ls='--',c='gray')
+        axs[1].set_ylabel('Y transform amp diff (mm)')
+        axs[1].set_xlabel('Date')
+        plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
+        cbar = fig.colorbar(saamap, ax=axs[:], shrink=0.8, location='right',
+                            label='SAA')
+        pdf.savefig()
+        plt.close()
 
 def evt2img(event_list, pilow=35, pihigh=1909):
     '''
