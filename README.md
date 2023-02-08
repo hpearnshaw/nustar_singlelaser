@@ -20,7 +20,7 @@ export OBS_SCHEDULE=/home/nustar/observing_schedule.txt
 git clone https://github.com/hpearnshaw/nustar_singlelaser
 cd nustar_singlelaser
 pip install -r requirements.txt
-pip install .
+pip install -e .
 ```
 
 The commands `create_singlelaser_files` and `create_singlelaser_event_files` are now available to use.
