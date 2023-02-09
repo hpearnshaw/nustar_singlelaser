@@ -1,5 +1,5 @@
 ''' This program takes a provided data directory and generates single-laser performance results '''
-__all__ = ['laser_trends','plot_laser_trends']
+__all__ = ['laser_trends','plot_laser_trends','test_spline_update']
 
 import os, sys
 import numpy as np
@@ -14,7 +14,7 @@ import matplotlib
 import matplotlib.dates as mdates
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
-from .translate_psd import translate_psd0_to_psd1
+from .translate_psd import translate_psd0_to_psd1, translate_psd1_to_psd0
 from .fit_2dgauss import Fit2DGauss
 from .create_singlelaser_files import sinewave, get_day_phase, generate_event_files, get_obs_details
 from .caldb import get_alignment_file
@@ -68,29 +68,9 @@ def laser_trends(fltops_dir,result_dir,sl_dir):
         os.mkdir(sl_dir)
     
     # Load the observing schedule
-    obs_sched = os.getenv('OBS_SCHEDULE')
-    if not obs_sched:
-        print('Environment variable OBS_SCHEDULE not set!')
-        exit()
-    
-    rows = []
-    with open(obs_sched, 'r') as f:
-        for line in f:
-            if line[0] != ';':
-                l = line.split()
-                # Ignore observations with Aim == [na]
-                if l[9] != '[na]' and l[9] != '[n/a,n/a]' and l[9] != '[na,na]':
-                    # Deal with typos
-                    l[12] = l[12].replace(',', '.')
-                    rows.append(tuple(l[0:13]))
+    observations = parse_obs_schedule()
     
     # Determine the high-count point sources
-    observations = Table(rows=rows,
-                         names=('START','END','SEQUENCE_ID','NAME','J2000_RA',
-                          'J2000_DEC','OFFSET_RA','OFFSET_DEC','SAA','AIM',
-                          'CR','ORBITS','EXP'),
-                         dtype=('U17','U17','U11','U50','d','d','d','d',
-                          'f','U11','f','f','f'))
     count_est = observations['CR'] * observations['EXP'] * 1000
     high_count_obs = observations[count_est > 50000]
     
@@ -587,7 +567,7 @@ def plot_laser_trends(result_dir):
         plt.close()
         
         # Baseline and angle by SAA and time (plus models)
-        dateticks = [mdates.date2num(datetime.strptime(str(y), '%Y')) for y in np.arange(2013,2023)]
+        dateticks = [mdates.date2num(datetime.strptime(str(y), '%Y')) for y in np.arange(2013,datetime.now().year+1)]
         torigin = datetime.strptime('2010','%Y')
         x = saa[orig & fpma]
         y = np.array([t.total_seconds()
@@ -791,6 +771,332 @@ def plot_laser_trends(result_dir):
                             label='SAA')
         pdf.savefig()
         plt.close()
+        
+def test_spline_update(fltops_dir,result_dir):
+    '''
+        This function...
+        
+        Parameters
+        ----------
+        fltops_dir : string
+            The location of the directory containing the data (must be
+            structured like fltops i.e. fltops/target/observation)
+            
+        result_dir : string
+            The directory containing the laser trends results table
+            Also where a dated test result will be written to
+    '''
+    # Initialise fit
+    fit = Fit2DGauss()
+    
+    # Load all the pickles we want to use from the archive, somehow
+    interpolators = ['baseline','translation_angle','sine_amp','sine_mean','phase_diff',
+                     'x_amp_diff_0to1','x_amp_diff_1to0','y_amp_diff_0to1','y_amp_diff_1to0']
+    
+    rel_dict = {}
+    for relation in interpolators:
+        # Find the archive files for this relation and get most recent version
+        files = np.array(os.listdir(resources.files('singlelaser.interpolators.archive')))
+        this_rel = [f.startswith(relation) for f in files]
+        datestrings = [np.int32(s[-12:-4]) for s in files[this_rel]]
+        filename = f'{relation}_interpolator_{max(datestrings)}.pkl'
+        
+        with resources.open_binary('singlelaser.interpolators.archive', filename) as f:
+            rel_dict[relation] = pickle.load(f)
+    
+    # Load results table
+    results_file = 'singlelaser_results.fits'
+    pr = fits.open(os.path.join(result_dir,results_file))
+    results = pr[1].data
+    pr.close()
+    saa = results['SAA']
+    
+    # Create a test results table of the same format
+    now = datetime.now().strftime('%Y%m%d%H%M%S')
+    test_results_file = f'singlelaser_results_test_{now}.fits'
+    output = os.path.join(result_dir,test_results_file)
+    test_results = Table(None,
+                        names=('SEQUENCE_ID','MOD','MODE','SAA','DATE',
+                                'HEIGHT','X','Y','WX','WY','ROT',
+                                'BASELINE','ANGLE',
+                                'AMP','AMP_OFFSET','TIME_OFFSET','PHASE_DIFF',
+                                'X_DIFF_EST','Y_DIFF_EST'),
+                        dtype=('U11','U1','U2','f','U','f','f','f','f','f','f','f',
+                                'f','f','f','f','f','f','f'))
+    
+    # Load observations schedule
+    observations = parse_obs_schedule()
+
+    # Define SAA range of interest (if applicable)
+    # 60-80 and 100-120 are where we see the most bad spikes
+    # saa_range = (saa > 0) & (saa < 180)
+    saa_range = ((saa > 60) & (saa < 80)) | ((saa > 100) & (saa < 120))
+    
+    # Select a random set of 20 observations from the above SAA range
+    test_obs = np.random.choice(np.unique(results['SEQUENCE_ID'][saa_range]),size=20)
+    #test_obs = ['30002006002','30301003002']
+    
+    # Generate new single-laser files, fit
+    for obsid in test_obs:
+        this_obs = observations[observations['SEQUENCE_ID'] == obsid][0]
+        obsname = this_obs['NAME']
+    
+        target_dir = f'{obsid[:-3]}_{obsname}'
+        obs_dir = os.path.join(fltops_dir,target_dir,obsid)
+        cl_dir = os.path.join(obs_dir,'event_cl')
+        auxil_dir = os.path.join(obs_dir,'auxil')
+        out_dir = f'tmp_laserfiles_{obsid}'
+        
+        if not os.path.isdir(out_dir):
+            os.mkdir(out_dir)
+        print(out_dir)
+        
+        # Generate new psdcorr files
+        obs_start_time, obs_met, saa = get_obs_details(obsid)
+        obs_start_iso = obs_start_time.isoformat()
+        caldb_file = get_alignment_file(obs_start_time)
+
+        baseline = rel_dict['baseline'](saa, obs_met)
+        angle = rel_dict['translation_angle'](saa)
+        print(f'Estimated PSD translation parameters: {baseline:.2f} mm, {angle:.5f} rad')
+    
+        psdcorrnewfilename = {}
+        psdcorroldfilename = os.path.join(cl_dir,f'nu{obsid}_psdcorr.fits')
+        psdcorrnewfilename['0'] = os.path.join(out_dir,f'nu{obsid}_psdcorr_sim0.fits')
+        psdcorrnewfilename['1'] = os.path.join(out_dir,f'nu{obsid}_psdcorr_sim1.fits')
+        _, _ = translate_psd0_to_psd1(psdcorroldfilename,
+                                      psdcorrnewfilename['0'],
+                                      caldb_file,baseline=baseline,angle=angle)
+        _, _ = translate_psd1_to_psd0(psdcorroldfilename,
+                                      psdcorrnewfilename['1'],
+                                      caldb_file,baseline=baseline,angle=angle+np.pi)
+                                      
+        # Generate new mast files and adjust
+        amp = rel_dict['sine_amp'](saa)
+        mean = rel_dict['sine_mean'](saa)
+        phase_difference = rel_dict['phase_diff'](saa)
+        orbit_file = os.path.join(auxil_dir,f'nu{obsid}_orb.fits')
+        day_phase = get_day_phase(orbit_file)
+        predicted_sim_phase = day_phase - phase_difference
+        time_offset = predicted_sim_phase * period
+    
+        for laser in ['0','1']:
+            # Assign event file mode
+            if laser == '0': mode = '07'
+            elif laser == '1': mode = '08'
+        
+            print(f'Creating LASER{laser} mast file...')
+            new_mast_filepath = os.path.join(out_dir,f'nu{obsid}_mast_sim{laser}.fits')
+            call(['numetrology','metflag=no',
+                  f'inpsdfilecor={psdcorrnewfilename[laser]}',
+                  f'mastaspectfile={new_mast_filepath}','clobber=yes'])
+            
+            # Open file in update mode and modify
+            new_mast_file = fits.open(new_mast_filepath, mode='update')
+            new_mast = new_mast_file[1].data
+
+            print(f'Modifying LASER{laser} mast file...')
+            time = new_mast['TIME'] - new_mast['TIME'][0]
+            newtx, newty = new_mast['T_FBOB'][:,0], new_mast['T_FBOB'][:,1]
+            
+            # Transform amplitude differences
+            if laser == '0':
+                x_diff = rel_dict['x_amp_diff_0to1'](saa)
+                y_diff = rel_dict['y_amp_diff_0to1'](saa)
+            elif laser == '1':
+                x_diff = rel_dict['x_amp_diff_1to0'](saa)
+                y_diff = rel_dict['y_amp_diff_1to0'](saa)
+            mast_twist_angle = sinewave(time, amp, time_offset, mean)
+            x_amp, y_amp = np.max(newtx) - np.min(newtx), np.max(newty) - np.min(newty)
+            corrected_x = (newtx - np.mean(newtx)) * (x_amp - x_diff) / x_amp + np.mean(newtx)
+            corrected_y = (newty - np.mean(newty)) * (y_amp - y_diff) / y_amp + np.mean(newty)
+            
+            # New transforms and quaternions
+            est_t_fbob, est_q_fbob = np.zeros((len(time),3)), np.zeros((len(time),4))
+            est_t_fbob[:,0], est_t_fbob[:,1], est_t_fbob[:,2] = corrected_x, corrected_y, mast_length
+            est_q_fbob[:,2], est_q_fbob[:,3] = np.sin(mast_twist_angle/2), np.cos(mast_twist_angle/2)
+            print(f'Estimated LASER{laser} mast parameters:')
+            print(f'Twist angle amplitude: {amp:.5f} rad, mean: {mean:.5f}, time offset: {time_offset:.2f} s')
+            print(f'X transform diff: {x_diff:.5f} mm, Y transform diff: {y_diff:.5f} mm')
+
+            # Save modifications to new mast file
+            new_mast['Q_FBOB'] = est_q_fbob
+            new_mast['T_FBOB'] = est_t_fbob
+            new_mast_file[1].data = new_mast
+            new_mast_file.flush()
+            new_mast_file.close()
+            
+            # Create event files
+            print(f'Creating LASER{laser} event files...')
+            ev_file = fits.open(os.path.join(cl_dir,f'nu{obsid}A01_cl.evt'))
+            ev_hdr = ev_file[1].header
+            ev_file.close()
+
+            for mod in ['A','B']:
+                # Create new event files using nucoord (this also produces new oa and det1 files)
+                outfile = os.path.join(out_dir,f'nu{obsid}{mod}{mode}_cl.evt')
+                call(['nucoord','infile='+os.path.join(cl_dir,f'nu{obsid}{mod}01_cl.evt'),
+                      f'outfile={outfile}',f'alignfile={caldb_file}',
+                      f'mastaspectfile={new_mast_filepath}',
+                      f'attfile='+os.path.join(auxil_dir,f'nu{obsid}_att.fits'),
+                      f'pntra={ev_hdr["RA_NOM"]}', f'pntdec={ev_hdr["DEC_NOM"]}',
+                      f'optaxisfile='+os.path.join(out_dir,f'nu{obsid}{mod}_oa_laser{laser}.fits'),
+                      f'det1reffile='+os.path.join(out_dir,f'nu{obsid}{mod}_det1_laser{laser}.fits'),
+                      'clobber=yes'])
+            
+                # Extract image from event list
+                ev_file = fits.open(outfile)
+                ev = ev_file[1].data
+                ev_file.close()
+                fpm_im = evt2img(ev)
+                
+                # Fit image with a 2D Gaussian
+                try:
+                    print('Fitting PSF...')
+                    h, x, y, wx, wy, rot = fit.fitgaussian(fpm_im)
+                except:
+                    print(f'PSF fit failed: {outfile}')
+                    h, x, y, wx, wy, rot = -1, -1, -1, -1, -1, -1
+
+                # Record in a new test table
+                this_row = [obsid, mod, mode, saa, obs_start_iso,
+                            h, x, y, wx, wy, rot, baseline, angle,
+                            amp, mean, time_offset, phase_difference,
+                            x_diff, y_diff]
+                test_results.add_row(tuple(this_row))
+                test_results.write(output, format='fits', overwrite=True)
+                
+        # Now remove the temporary files for this obs
+        call(f'rm -r {out_dir}', shell=True)
+    
+    # Plot new PSF size/distortion against old
+    test_results = test_results[np.argsort(test_results['DATE'])]
+    test_start = np.array([datetime.fromisoformat(d) for d in test_results['DATE']])
+    test_startnum = mdates.date2num(test_start)
+    test_saa = test_results['SAA']
+    
+    # Result file filters and derived columns
+    fpma, fpmb = test_results['MOD'] == 'A', test_results['MOD'] == 'B'
+    laser0, laser1 = test_results['MODE'] == '07', test_results['MODE'] == '08'
+    semimajor = np.max([test_results['WX'],test_results['WY']],axis=0)
+    semiminor = np.min([test_results['WX'],test_results['WY']],axis=0)
+    e = semimajor/semiminor
+    goodfit = (semimajor < 20) & (semiminor < 20)
+    saa_axis = np.arange(0,180,0.2)
+        
+    # Setup colorbar maps for SAA and date
+    saanorm = matplotlib.colors.Normalize(vmin=0,vmax=180)
+    saamap = matplotlib.cm.ScalarMappable(norm=saanorm,cmap='rainbow')
+    startnorm = matplotlib.colors.Normalize(vmin=np.min(test_startnum),vmax=np.max(test_startnum))
+    startmap = matplotlib.cm.ScalarMappable(norm=startnorm,cmap='viridis')
+    residnorm = matplotlib.colors.Normalize(vmin=-1,vmax=1)
+    residmap = matplotlib.cm.ScalarMappable(norm=residnorm,cmap='RdBu_r')
+
+    # Produce plots of fit quality/parameters vs time and SAA
+    # in a multi-page PDF file
+    font = {'size' : 16, 'family' : 'sans-serif'}
+    matplotlib.rc('font', **font)
+    with PdfPages(os.path.join(result_dir,'laser_trends_test_update.pdf')) as pdf:
+        # Semimajor axis by SAA
+        fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,8])
+        axs[0].set_title('PSF semimajor axis vs SAA')
+        axs[0].scatter(test_saa[laser0 & fpma & goodfit],semimajor[laser0 & fpma & goodfit],
+                        c=test_startnum[laser0 & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k',label='FPMA')
+        axs[0].scatter(test_saa[laser0 & fpmb & goodfit],semimajor[laser0 & fpmb & goodfit],
+                        c=test_startnum[laser0 & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k',label='FPMB')
+        axs[0].set_ylabel('Semimajor axis (pixels)')
+        axs[0].legend()
+        axs[0].text(0.5, 0.9, 'LASER0',
+                    horizontalalignment='center', transform=axs[0].transAxes)
+        axs[0].set_xlim(0,180)
+        axs[0].set_ylim([5,19])
+        
+        axs[1].scatter(test_saa[laser1 & fpma & goodfit],semimajor[laser1 & fpma & goodfit],
+                        c=test_startnum[laser1 & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[1].scatter(test_saa[laser1 & fpmb & goodfit],semimajor[laser1 & fpmb & goodfit],
+                        c=test_startnum[laser1 & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k')
+        axs[1].set_xlabel('SAA')
+        axs[1].text(0.5, 0.9, 'LASER1',
+                    horizontalalignment='center', transform=axs[1].transAxes)
+        axs[1].set_ylim([5,19])
+        plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
+        cbar = fig.colorbar(startmap, ax=axs[:], shrink=0.8, location='right',
+                            label='Date', ticks=mdates.YearLocator(),
+                            format=mdates.DateFormatter('%Y'))
+        pdf.savefig()
+        plt.close()
+        
+        # Semiminor axis by SAA
+        fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,8])
+        axs[0].set_title('PSF semiminor axis vs SAA')
+        axs[0].scatter(test_saa[laser0 & fpma & goodfit],semiminor[laser0 & fpma & goodfit],
+                        c=test_startnum[laser0 & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k',label='FPMA')
+        axs[0].scatter(test_saa[laser0 & fpmb & goodfit],semiminor[laser0 & fpmb & goodfit],
+                        c=test_startnum[laser0 & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k',label='FPMB')
+        axs[0].set_ylabel('Semiminor axis (pixels)')
+        axs[0].text(0.5, 0.9, 'LASER0',
+                    horizontalalignment='center', transform=axs[0].transAxes)
+        axs[0].legend()
+        axs[0].set_xlim(0,180)
+        axs[0].set_ylim([4.1,15.9])
+        
+        axs[1].scatter(test_saa[laser1 & fpma & goodfit],semiminor[laser1 & fpma & goodfit],
+                        c=test_startnum[laser1 & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[1].scatter(test_saa[laser1 & fpmb & goodfit],semiminor[laser1 & fpmb & goodfit],
+                        c=test_startnum[laser1 & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k')
+        axs[1].set_xlabel('SAA')
+        axs[1].text(0.5, 0.9, 'LASER1',
+                    horizontalalignment='center', transform=axs[1].transAxes)
+        axs[1].set_ylim([4.1,15.9])
+        plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
+        cbar = fig.colorbar(startmap, ax=axs[:], shrink=0.8, location='right',
+                            label='Date', ticks=mdates.YearLocator(),
+                            format=mdates.DateFormatter('%Y'))
+        pdf.savefig()
+        plt.close()
+    
+        # Axis ratio by SAA
+        fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,8])
+        axs[0].set_title('PSF elongation vs SAA')
+        axs[0].scatter(test_saa[laser0 & fpma & goodfit],e[laser0 & fpma & goodfit],
+                        c=test_startnum[laser0 & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k',label='FPMA')
+        axs[0].scatter(test_saa[laser0 & fpmb & goodfit],e[laser0 & fpmb & goodfit],
+                        c=test_startnum[laser0 & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k',label='FPMB')
+        axs[0].set_ylabel('Axis ratio a/b')
+        axs[0].text(0.5, 0.9, 'LASER0',
+                    horizontalalignment='center', transform=axs[0].transAxes)
+        axs[0].legend()
+        axs[0].set_xlim(0,180)
+        axs[0].set_ylim([0.9,2.4])
+        
+        axs[1].scatter(test_saa[laser1 & fpma & goodfit],e[laser1 & fpma & goodfit],
+                        c=test_startnum[laser1 & fpma & goodfit],cmap='viridis',
+                        norm=startnorm,marker='o',edgecolors='k')
+        axs[1].scatter(test_saa[laser1 & fpmb & goodfit],e[laser1 & fpmb & goodfit],
+                        c=test_startnum[laser1 & fpmb & goodfit],cmap='viridis',
+                        norm=startnorm,marker='^',edgecolors='k')
+        axs[1].set_xlabel('SAA')
+        axs[1].text(0.5, 0.9, 'LASER1',
+                    horizontalalignment='center', transform=axs[1].transAxes)
+        axs[1].set_ylim([0.9,2.4])
+        plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
+        cbar = fig.colorbar(startmap, ax=axs[:], shrink=0.8, location='right',
+                            label='Date', ticks=mdates.YearLocator(),
+                            format=mdates.DateFormatter('%Y'))
+        pdf.savefig()
+        plt.close()
+    
+    return test_obs
 
 def evt2img(event_list, pilow=35, pihigh=1909):
     '''
@@ -820,6 +1126,41 @@ def evt2img(event_list, pilow=35, pihigh=1909):
                               bins=np.linspace(0,1000,1001))
 
     return im
+    
+def parse_obs_schedule():
+    '''
+        This function loads in the observing schedule from where it is kept
+        using the environment variable OBS_SCHEDULE
+        
+        Returns
+        -------
+        observations: astropy Table
+            Key data from the observing schedule in astropy Table format
+    '''
+    obs_sched = os.getenv('OBS_SCHEDULE')
+    if not obs_sched:
+        print('Environment variable OBS_SCHEDULE not set!')
+        exit()
+    
+    rows = []
+    with open(obs_sched, 'r') as f:
+        for line in f:
+            if line[0] != ';':
+                l = line.split()
+                # Ignore observations with Aim == [na]
+                if l[9] != '[na]' and l[9] != '[n/a,n/a]' and l[9] != '[na,na]':
+                    # Deal with typos
+                    l[12] = l[12].replace(',', '.')
+                    rows.append(tuple(l[0:13]))
+    
+    # Determine the high-count point sources
+    observations = Table(rows=rows,
+                         names=('START','END','SEQUENCE_ID','NAME','J2000_RA',
+                          'J2000_DEC','OFFSET_RA','OFFSET_DEC','SAA','AIM',
+                          'CR','ORBITS','EXP'),
+                         dtype=('U17','U17','U11','U50','d','d','d','d',
+                          'f','U11','f','f','f'))
+    return observations
 
 def main():
     # Check for observation directory from the command line
@@ -835,6 +1176,17 @@ def main():
     new_rows = laser_trends(fltops_dir, result_dir, sl_dir)
     if new_rows > 0:
         plot_laser_trends(result_dir)
+        
+def test_update():
+    # Check for directories from the command line
+    if len(sys.argv) < 2:
+        fltops_dir = input('Data input directory: ')
+        result_dir = input('Results output directory: ')
+    else:
+        fltops_dir = sys.argv[1]
+        result_dir = sys.argv[2]
+    
+    test_obs = test_spline_update(fltops_dir, result_dir)
 
 if __name__ == '__main__':
     main()
