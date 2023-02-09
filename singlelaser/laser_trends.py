@@ -831,9 +831,10 @@ def test_spline_update(fltops_dir,result_dir):
     # 60-80 and 100-120 are where we see the most bad spikes
     # saa_range = (saa > 0) & (saa < 180)
     saa_range = ((saa > 60) & (saa < 80)) | ((saa > 100) & (saa < 120))
+    goodfitnocrab = (results['WX'] < 10) & (results['WY'] < 10) & (results['MODE'] == '01')
     
-    # Select a random set of 20 observations from the above SAA range
-    test_obs = np.random.choice(np.unique(results['SEQUENCE_ID'][saa_range]),size=20)
+    # Select a random set of 100 observations from the above SAA range and good for comparison
+    test_obs = np.random.choice(np.unique(results['SEQUENCE_ID'][saa_range & goodfitnocrab]),size=100)
     #test_obs = ['30002006002','30301003002']
     
     # Generate new single-laser files, fit
@@ -849,7 +850,6 @@ def test_spline_update(fltops_dir,result_dir):
         
         if not os.path.isdir(out_dir):
             os.mkdir(out_dir)
-        print(out_dir)
         
         # Generate new psdcorr files
         obs_start_time, obs_met, saa = get_obs_details(obsid)
@@ -981,10 +981,20 @@ def test_spline_update(fltops_dir,result_dir):
     semimajor = np.max([test_results['WX'],test_results['WY']],axis=0)
     semiminor = np.min([test_results['WX'],test_results['WY']],axis=0)
     e = semimajor/semiminor
-    goodfit = (semimajor < 20) & (semiminor < 20)
-    saa_axis = np.arange(0,180,0.2)
+    #goodfit = (semimajor < 20) & (semiminor < 20)
+    
+    # Original fits for comparison
+    mask = [(r in test_obs) for r in results['SEQUENCE_ID']]
+    orig_results = results[mask]
+    orig_saa = orig_results['SAA']
+    orig_fpma, orig_fpmb = orig_results['MOD'] == 'A', orig_results['MOD'] == 'B'
+    orig_laser0, orig_laser1 = orig_results['MODE'] == '07', orig_results['MODE'] == '08'
+    orig_semimajor = np.max([orig_results['WX'],orig_results['WY']],axis=0)
+    orig_semiminor = np.min([orig_results['WX'],orig_results['WY']],axis=0)
+    orig_e = orig_semimajor/orig_semiminor
         
     # Setup colorbar maps for SAA and date
+    saa_axis = np.arange(0,180,0.2)
     saanorm = matplotlib.colors.Normalize(vmin=0,vmax=180)
     saamap = matplotlib.cm.ScalarMappable(norm=saanorm,cmap='rainbow')
     startnorm = matplotlib.colors.Normalize(vmin=np.min(test_startnum),vmax=np.max(test_startnum))
@@ -1000,11 +1010,15 @@ def test_spline_update(fltops_dir,result_dir):
         # Semimajor axis by SAA
         fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,8])
         axs[0].set_title('PSF semimajor axis vs SAA')
-        axs[0].scatter(test_saa[laser0 & fpma & goodfit],semimajor[laser0 & fpma & goodfit],
-                        c=test_startnum[laser0 & fpma & goodfit],cmap='viridis',
+        axs[0].scatter(orig_saa[orig_laser0 & orig_fpma],orig_semimajor[orig_laser0 & orig_fpma],
+                        c='0.5',marker='o',edgecolors='0.3',alpha=0.8,label='orig FPMA')
+        axs[0].scatter(orig_saa[orig_laser0 & orig_fpmb],orig_semimajor[orig_laser0 & orig_fpmb],
+                        c='0.5',marker='^',edgecolors='0.3',alpha=0.8,label='orig FPMB')
+        axs[0].scatter(test_saa[laser0 & fpma],semimajor[laser0 & fpma],
+                        c=test_startnum[laser0 & fpma],cmap='viridis',
                         norm=startnorm,marker='o',edgecolors='k',label='FPMA')
-        axs[0].scatter(test_saa[laser0 & fpmb & goodfit],semimajor[laser0 & fpmb & goodfit],
-                        c=test_startnum[laser0 & fpmb & goodfit],cmap='viridis',
+        axs[0].scatter(test_saa[laser0 & fpmb],semimajor[laser0 & fpmb],
+                        c=test_startnum[laser0 & fpmb],cmap='viridis',
                         norm=startnorm,marker='^',edgecolors='k',label='FPMB')
         axs[0].set_ylabel('Semimajor axis (pixels)')
         axs[0].legend()
@@ -1013,11 +1027,15 @@ def test_spline_update(fltops_dir,result_dir):
         axs[0].set_xlim(0,180)
         axs[0].set_ylim([5,19])
         
-        axs[1].scatter(test_saa[laser1 & fpma & goodfit],semimajor[laser1 & fpma & goodfit],
-                        c=test_startnum[laser1 & fpma & goodfit],cmap='viridis',
+        axs[1].scatter(orig_saa[orig_laser1 & orig_fpma],orig_semimajor[orig_laser1 & orig_fpma],
+                        c='0.5',marker='o',edgecolors='0.3',alpha=0.8)
+        axs[1].scatter(orig_saa[orig_laser1 & orig_fpmb],orig_semimajor[orig_laser1 & orig_fpmb],
+                        c='0.5',marker='^',edgecolors='0.3',alpha=0.8)
+        axs[1].scatter(test_saa[laser1 & fpma],semimajor[laser1 & fpma],
+                        c=test_startnum[laser1 & fpma],cmap='viridis',
                         norm=startnorm,marker='o',edgecolors='k')
-        axs[1].scatter(test_saa[laser1 & fpmb & goodfit],semimajor[laser1 & fpmb & goodfit],
-                        c=test_startnum[laser1 & fpmb & goodfit],cmap='viridis',
+        axs[1].scatter(test_saa[laser1 & fpmb],semimajor[laser1 & fpmb],
+                        c=test_startnum[laser1 & fpmb],cmap='viridis',
                         norm=startnorm,marker='^',edgecolors='k')
         axs[1].set_xlabel('SAA')
         axs[1].text(0.5, 0.9, 'LASER1',
@@ -1033,11 +1051,15 @@ def test_spline_update(fltops_dir,result_dir):
         # Semiminor axis by SAA
         fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,8])
         axs[0].set_title('PSF semiminor axis vs SAA')
-        axs[0].scatter(test_saa[laser0 & fpma & goodfit],semiminor[laser0 & fpma & goodfit],
-                        c=test_startnum[laser0 & fpma & goodfit],cmap='viridis',
+        axs[0].scatter(orig_saa[orig_laser0 & orig_fpma],orig_semiminor[orig_laser0 & orig_fpma],
+                        c='0.5',marker='o',edgecolors='0.3',alpha=0.8,label='orig FPMA')
+        axs[0].scatter(orig_saa[orig_laser0 & orig_fpmb],orig_semiminor[orig_laser0 & orig_fpmb],
+                        c='0.5',marker='^',edgecolors='0.3',alpha=0.8,label='orig FPMB')
+        axs[0].scatter(test_saa[laser0 & fpma],semiminor[laser0 & fpma],
+                        c=test_startnum[laser0 & fpma],cmap='viridis',
                         norm=startnorm,marker='o',edgecolors='k',label='FPMA')
-        axs[0].scatter(test_saa[laser0 & fpmb & goodfit],semiminor[laser0 & fpmb & goodfit],
-                        c=test_startnum[laser0 & fpmb & goodfit],cmap='viridis',
+        axs[0].scatter(test_saa[laser0 & fpmb],semiminor[laser0 & fpmb],
+                        c=test_startnum[laser0 & fpmb],cmap='viridis',
                         norm=startnorm,marker='^',edgecolors='k',label='FPMB')
         axs[0].set_ylabel('Semiminor axis (pixels)')
         axs[0].text(0.5, 0.9, 'LASER0',
@@ -1046,11 +1068,15 @@ def test_spline_update(fltops_dir,result_dir):
         axs[0].set_xlim(0,180)
         axs[0].set_ylim([4.1,15.9])
         
-        axs[1].scatter(test_saa[laser1 & fpma & goodfit],semiminor[laser1 & fpma & goodfit],
-                        c=test_startnum[laser1 & fpma & goodfit],cmap='viridis',
+        axs[1].scatter(orig_saa[orig_laser1 & orig_fpma],orig_semiminor[orig_laser1 & orig_fpma],
+                        c='0.5',marker='o',edgecolors='0.3',alpha=0.8,label='orig FPMA')
+        axs[1].scatter(orig_saa[orig_laser1 & orig_fpmb],orig_semiminor[orig_laser1 & orig_fpmb],
+                        c='0.5',marker='^',edgecolors='0.3',alpha=0.8,label='orig FPMB')
+        axs[1].scatter(test_saa[laser1 & fpma],semiminor[laser1 & fpma],
+                        c=test_startnum[laser1 & fpma],cmap='viridis',
                         norm=startnorm,marker='o',edgecolors='k')
-        axs[1].scatter(test_saa[laser1 & fpmb & goodfit],semiminor[laser1 & fpmb & goodfit],
-                        c=test_startnum[laser1 & fpmb & goodfit],cmap='viridis',
+        axs[1].scatter(test_saa[laser1 & fpmb],semiminor[laser1 & fpmb],
+                        c=test_startnum[laser1 & fpmb],cmap='viridis',
                         norm=startnorm,marker='^',edgecolors='k')
         axs[1].set_xlabel('SAA')
         axs[1].text(0.5, 0.9, 'LASER1',
@@ -1066,11 +1092,15 @@ def test_spline_update(fltops_dir,result_dir):
         # Axis ratio by SAA
         fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,8])
         axs[0].set_title('PSF elongation vs SAA')
-        axs[0].scatter(test_saa[laser0 & fpma & goodfit],e[laser0 & fpma & goodfit],
-                        c=test_startnum[laser0 & fpma & goodfit],cmap='viridis',
+        axs[0].scatter(orig_saa[orig_laser0 & orig_fpma],orig_e[orig_laser0 & orig_fpma],
+                        c='0.5',marker='o',edgecolors='0.3',alpha=0.8,label='orig FPMA')
+        axs[0].scatter(orig_saa[orig_laser0 & orig_fpmb],orig_e[orig_laser0 & orig_fpmb],
+                        c='0.5',marker='^',edgecolors='0.3',alpha=0.8,label='orig FPMB')
+        axs[0].scatter(test_saa[laser0 & fpma],e[laser0 & fpma],
+                        c=test_startnum[laser0 & fpma],cmap='viridis',
                         norm=startnorm,marker='o',edgecolors='k',label='FPMA')
-        axs[0].scatter(test_saa[laser0 & fpmb & goodfit],e[laser0 & fpmb & goodfit],
-                        c=test_startnum[laser0 & fpmb & goodfit],cmap='viridis',
+        axs[0].scatter(test_saa[laser0 & fpmb],e[laser0 & fpmb],
+                        c=test_startnum[laser0 & fpmb],cmap='viridis',
                         norm=startnorm,marker='^',edgecolors='k',label='FPMB')
         axs[0].set_ylabel('Axis ratio a/b')
         axs[0].text(0.5, 0.9, 'LASER0',
@@ -1079,11 +1109,15 @@ def test_spline_update(fltops_dir,result_dir):
         axs[0].set_xlim(0,180)
         axs[0].set_ylim([0.9,2.4])
         
-        axs[1].scatter(test_saa[laser1 & fpma & goodfit],e[laser1 & fpma & goodfit],
-                        c=test_startnum[laser1 & fpma & goodfit],cmap='viridis',
+        axs[1].scatter(orig_saa[orig_laser1 & orig_fpma],orig_e[orig_laser1 & orig_fpma],
+                        c='0.5',marker='o',edgecolors='0.3',alpha=0.8,label='orig FPMA')
+        axs[1].scatter(orig_saa[orig_laser1 & orig_fpmb],orig_e[orig_laser1 & orig_fpmb],
+                        c='0.5',marker='^',edgecolors='0.3',alpha=0.8,label='orig FPMB')
+        axs[1].scatter(test_saa[laser1 & fpma],e[laser1 & fpma],
+                        c=test_startnum[laser1 & fpma],cmap='viridis',
                         norm=startnorm,marker='o',edgecolors='k')
-        axs[1].scatter(test_saa[laser1 & fpmb & goodfit],e[laser1 & fpmb & goodfit],
-                        c=test_startnum[laser1 & fpmb & goodfit],cmap='viridis',
+        axs[1].scatter(test_saa[laser1 & fpmb],e[laser1 & fpmb],
+                        c=test_startnum[laser1 & fpmb],cmap='viridis',
                         norm=startnorm,marker='^',edgecolors='k')
         axs[1].set_xlabel('SAA')
         axs[1].text(0.5, 0.9, 'LASER1',
