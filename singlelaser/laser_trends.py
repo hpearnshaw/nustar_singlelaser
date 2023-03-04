@@ -810,6 +810,7 @@ def test_spline_update(fltops_dir,result_dir):
     results = pr[1].data
     pr.close()
     saa = results['SAA']
+    start = np.array([datetime.fromisoformat(d) for d in results['DATE']])
     
     # Create a test results table of the same format
     now = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -828,9 +829,9 @@ def test_spline_update(fltops_dir,result_dir):
     observations = parse_obs_schedule()
 
     # Define SAA range of interest (if applicable)
-    # 60-80 and 100-120 are where we see the most bad spikes
+    # 60-80 and 100-120 are where we see the most bad spikes and after 2018 when we start to see more time-variable behaviour
     # saa_range = (saa > 0) & (saa < 180)
-    saa_range = ((saa > 60) & (saa < 80)) | ((saa > 100) & (saa < 120))
+    saa_range = (((saa > 60) & (saa < 80)) | ((saa > 100) & (saa < 120))) & (start > datetime.strptime('20180101', '%Y%m%d'))
     goodfitnocrab = (results['WX'] < 10) & (results['WY'] < 10) & (results['MODE'] == '01')
     
     # Select a random set of 100 observations from the above SAA range and good for comparison
