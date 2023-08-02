@@ -56,7 +56,7 @@ Generate a single-laser performance results table by calling:
 run_laser_trends /path/to/data/directory /path/to/results/directory /path/to/singlelasereventfiles/directory
 ```
 
-This code will create the single-laser event files of bright sources (>50000 estimated counts) in the data directory (must be organized in the same datadir/target/observation fashion as the regular FltOps directory), saving the new single-laser event files to a given directory, and either generate a table containing the performance results, or append results from new observations to that table, saved in the results directory.
+This code will create the single-laser event files of bright sources (i.e. sources with >50000 estimated counts) in the data directory (must be organized in the same datadir/target/observation fashion as the regular FltOps directory), saving the new single-laser event files to a given directory, and either generate a table containing the performance results, or append results from new observations to that table, saved in the results directory.
 
 License
 -------
