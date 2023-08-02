@@ -1186,6 +1186,14 @@ def parse_obs_schedule():
                 if l[9] != '[na]' and l[9] != '[n/a,n/a]' and l[9] != '[na,na]':
                     # Deal with typos
                     l[12] = l[12].replace(',', '.')
+                    
+                    # Check that the important numbers can be successfully converted to floats
+                    try:
+                        floats = [float(x) for x in l[4:9]]
+                    except:
+                        print(f'Incorrectly formatted RA/Dec for SEQUENCEID {l[2]}, skipping...')
+                        continue
+                    
                     rows.append(tuple(l[0:13]))
     
     # Determine the high-count point sources
