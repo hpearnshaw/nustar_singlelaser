@@ -24,7 +24,7 @@ AUTHOR = metadata.get('author', 'Hannah Earnshaw')
 AUTHOR_EMAIL = metadata.get('author_email', 'hpearn@caltech.edu')
 LICENSE = metadata.get('license', 'BSD 3-Clause')
 URL = metadata.get('url', '""')
-__minimum_python_version__ = metadata.get('minimum_python_version', '3.7')
+__minimum_python_version__ = metadata.get('minimum_python_version', '3.9')
 VERSION = metadata.get('version', '0.1dev')
 RELEASE = 'dev' not in VERSION
 
