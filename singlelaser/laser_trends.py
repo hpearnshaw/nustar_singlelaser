@@ -268,6 +268,7 @@ def plot_laser_trends(result_dir):
     start = np.array([datetime.fromisoformat(d) for d in results['DATE']])
     startnum = mdates.date2num(start)
     saa = results['SAA']
+    seqid = results['SEQUENCE_ID']
     
     # Result file filters and derived columns
     fpma, fpmb = results['MOD'] == 'A', results['MOD'] == 'B'
@@ -276,6 +277,9 @@ def plot_laser_trends(result_dir):
     semiminor = np.min([results['WX'],results['WY']],axis=0)
     e = semimajor/semiminor
     goodfit = (semimajor < 20) & (semiminor < 20)
+    extended_obs = seqid[(results['MODE'] == '01') & goodfit & (semimajor > 7.5)]
+    no_extended = [s not in extended_obs for s in seqid]
+    bad_saa = ((results['MODE'] == '07') & ((saa > 74) & (saa < 76)) | ((saa > 114) & (saa < 116))) | ((results['MODE'] == '08') & ((saa > 65) & (saa < 67)) | ((saa > 114) & (saa < 116)))
     # Get phase diff onto the same line
     day_phase_diff = results['PHASE_DIFF']
     day_phase_diff[day_phase_diff < 0] += 1
@@ -283,25 +287,22 @@ def plot_laser_trends(result_dir):
     day_phase_diff[day_phase_diff < (saa/40 - 2.5)] += 1
     
     # Load the splines/estimate functions
-    with resources.open_binary('singlelaser.interpolators', 'sine_amp_interpolator.pkl') as f:
-        sine_amp = pickle.load(f)
-    with resources.open_binary('singlelaser.interpolators', 'sine_mean_interpolator.pkl') as f:
-        sine_mean = pickle.load(f)
-    with resources.open_binary('singlelaser.interpolators', 'x_amp_diff_0to1_interpolator.pkl') as f:
-        x_amp_diff_0to1 = pickle.load(f)
-    with resources.open_binary('singlelaser.interpolators', 'y_amp_diff_0to1_interpolator.pkl') as f:
-        y_amp_diff_0to1 = pickle.load(f)
-    with resources.open_binary('singlelaser.interpolators', 'x_amp_diff_1to0_interpolator.pkl') as f:
-        x_amp_diff_1to0 = pickle.load(f)
-    with resources.open_binary('singlelaser.interpolators', 'y_amp_diff_1to0_interpolator.pkl') as f:
-        y_amp_diff_1to0 = pickle.load(f)
-    with resources.open_binary('singlelaser.interpolators', 'phase_diff_interpolator.pkl') as f:
-        phase_diff = pickle.load(f)
-    with resources.open_binary('singlelaser.interpolators', 'baseline_interpolator.pkl') as f:
-        estimate_baseline = pickle.load(f)
-    with resources.open_binary('singlelaser.interpolators', 'translation_angle_interpolator.pkl') as f:
-        translation_angle = pickle.load(f)
+    # And the file modification date metadata
+    interpolators = ['baseline','translation_angle','sine_amp','sine_mean','phase_diff',
+                     'x_amp_diff_0to1','x_amp_diff_1to0','y_amp_diff_0to1','y_amp_diff_1to0']
+    
+    rel_dict, mod_date = {}, {}
+    for relation in interpolators:
+        # Get binary and file modification time
+        filename = f'{relation}_interpolator.pkl'
+        interp_file = resources.files('singlelaser.interpolators').joinpath(filename)
+        
+        mod_date[relation] = datetime.utcfromtimestamp(os.path.getmtime(interp_file))
+        with interp_file.open('rb') as f:
+            rel_dict[relation] = pickle.load(f)
     saa_axis = np.arange(0,180,0.2)
+    
+    latest_change = mod_date[max(mod_date)]
         
     # Setup colorbar maps for SAA and date
     saanorm = matplotlib.colors.Normalize(vmin=0,vmax=180)
@@ -326,10 +327,18 @@ def plot_laser_trends(result_dir):
         axs[0].scatter(start[orig & fpmb & goodfit],semimajor[orig & fpmb & goodfit],
                         c=saa[orig & fpmb & goodfit],cmap='rainbow',
                         norm=saanorm,marker='^',edgecolors='k',label='FPMB')
-        axs[0].text(0.5, 0.9, 'Two lasers (original)',
-                    horizontalalignment='center', transform=axs[0].transAxes)
+        av_before = np.mean(semimajor[orig & goodfit & no_extended & (start < latest_change)])
+        av_after = np.mean(semimajor[orig & goodfit & no_extended & (start > latest_change)])
+        axs[0].plot([min(start[orig & goodfit]),latest_change],[av_before,av_before],color='red')
+        axs[0].plot([latest_change,max(start[orig & goodfit])],[av_after,av_after],color='red')
+        for m in mod_date:
+            axs[0].plot([mod_date[m], mod_date[m]],[5,19],ls=':',color='grey')
+        axs[0].text(0.8, 0.95, f'Av. before: {av_before:.2f}\n Av. after: {av_after:.2f}',
+                    horizontalalignment='left', verticalalignment='top', transform=axs[0].transAxes)
+        axs[0].text(0.05, 0.9, 'Two lasers (original)',
+                    horizontalalignment='left', transform=axs[0].transAxes)
         axs[0].set_ylim([5,19])
-        axs[0].legend()
+        axs[0].legend(loc=9)
         
         axs[1].scatter(start[laser0 & fpma & goodfit],semimajor[laser0 & fpma & goodfit],
                         c=saa[laser0 & fpma & goodfit],cmap='rainbow',
@@ -337,9 +346,17 @@ def plot_laser_trends(result_dir):
         axs[1].scatter(start[laser0 & fpmb & goodfit],semimajor[laser0 & fpmb & goodfit],
                         c=saa[laser0 & fpmb & goodfit],cmap='rainbow',
                         norm=saanorm,marker='^',edgecolors='k')
+        av_before = np.mean(semimajor[laser0 & goodfit & no_extended & (start < latest_change)])
+        av_after = np.mean(semimajor[laser0 & goodfit & no_extended & (start > latest_change)])
+        axs[1].plot([min(start[laser0 & goodfit]),latest_change],[av_before,av_before],color='red')
+        axs[1].plot([latest_change,max(start[laser0 & goodfit])],[av_after,av_after],color='red')
+        for m in mod_date:
+            axs[1].plot([mod_date[m], mod_date[m]],[5,19],ls=':',color='grey')
+        axs[1].text(0.8, 0.95, f'Av. before: {av_before:.2f}\n Av. after: {av_after:.2f}',
+                    horizontalalignment='left', verticalalignment='top', transform=axs[1].transAxes)
         axs[1].set_ylabel('Semimajor axis (pixels)')
-        axs[1].text(0.5, 0.9, 'LASER0',
-                    horizontalalignment='center', transform=axs[1].transAxes)
+        axs[1].text(0.05, 0.9, 'LASER0',
+                    horizontalalignment='left', transform=axs[1].transAxes)
         axs[1].set_ylim([5,19])
         
         axs[2].scatter(start[laser1 & fpma & goodfit],semimajor[laser1 & fpma & goodfit],
@@ -348,9 +365,17 @@ def plot_laser_trends(result_dir):
         axs[2].scatter(start[laser1 & fpmb & goodfit],semimajor[laser1 & fpmb & goodfit],
                         c=saa[laser1 & fpmb & goodfit],cmap='rainbow',
                         norm=saanorm,marker='^',edgecolors='k')
+        av_before = np.mean(semimajor[laser1 & goodfit & no_extended & (start < latest_change)])
+        av_after = np.mean(semimajor[laser1 & goodfit & no_extended & (start > latest_change)])
+        axs[2].plot([min(start[laser1 & goodfit]),latest_change],[av_before,av_before],color='red')
+        axs[2].plot([latest_change,max(start[laser1 & goodfit])],[av_after,av_after],color='red')
+        for m in mod_date:
+            axs[2].plot([mod_date[m], mod_date[m]],[5,19],ls=':',color='grey')
+        axs[2].text(0.8, 0.95, f'Av. before: {av_before:.2f}\n Av. after: {av_after:.2f}',
+                    horizontalalignment='left', verticalalignment='top', transform=axs[2].transAxes)
         axs[2].set_xlabel('Date')
-        axs[2].text(0.5, 0.9, 'LASER1',
-                    horizontalalignment='center', transform=axs[2].transAxes)
+        axs[2].text(0.05, 0.9, 'LASER1',
+                    horizontalalignment='left', transform=axs[2].transAxes)
         axs[2].set_ylim([5,19])
         plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
         fig.colorbar(saamap, ax=axs[:], shrink=0.8, location='right',label='SAA')
@@ -409,9 +434,17 @@ def plot_laser_trends(result_dir):
         axs[0].scatter(start[orig & fpmb & goodfit],semiminor[orig & fpmb & goodfit],
                         c=saa[orig & fpmb & goodfit],cmap='rainbow',
                         norm=saanorm,marker='^',edgecolors='k',label='FPMB')
-        axs[0].text(0.5, 0.9, 'Two lasers (original)',
-                    horizontalalignment='center', transform=axs[0].transAxes)
-        axs[0].legend()
+        av_before = np.mean(semiminor[orig & goodfit & no_extended & (start < latest_change)])
+        av_after = np.mean(semiminor[orig & goodfit & no_extended & (start > latest_change)])
+        axs[0].plot([min(start[orig & goodfit]),latest_change],[av_before,av_before],color='red')
+        axs[0].plot([latest_change,max(start[orig & goodfit])],[av_after,av_after],color='red')
+        for m in mod_date:
+            axs[0].plot([mod_date[m], mod_date[m]],[5,19],ls=':',color='grey')
+        axs[0].text(0.8, 0.95, f'Av. before: {av_before:.2f}\n Av. after: {av_after:.2f}',
+                    horizontalalignment='left', verticalalignment='top', transform=axs[0].transAxes)
+        axs[0].text(0.05, 0.9, 'Two lasers (original)',
+                    horizontalalignment='left', transform=axs[0].transAxes)
+        axs[0].legend(loc=9)
         axs[0].set_ylim([4.1,15.9])
         
         axs[1].scatter(start[laser0 & fpma & goodfit],semiminor[laser0 & fpma & goodfit],
@@ -420,9 +453,17 @@ def plot_laser_trends(result_dir):
         axs[1].scatter(start[laser0 & fpmb & goodfit],semiminor[laser0 & fpmb & goodfit],
                         c=saa[laser0 & fpmb & goodfit],cmap='rainbow',
                         norm=saanorm,marker='^',edgecolors='k')
+        av_before = np.mean(semiminor[laser0 & goodfit & no_extended & (start < latest_change)])
+        av_after = np.mean(semiminor[laser0 & goodfit & no_extended & (start > latest_change)])
+        axs[1].plot([min(start[laser0 & goodfit]),latest_change],[av_before,av_before],color='red')
+        axs[1].plot([latest_change,max(start[laser0 & goodfit])],[av_after,av_after],color='red')
+        for m in mod_date:
+            axs[1].plot([mod_date[m], mod_date[m]],[5,19],ls=':',color='grey')
+        axs[1].text(0.8, 0.95, f'Av. before: {av_before:.2f}\n Av. after: {av_after:.2f}',
+                    horizontalalignment='left', verticalalignment='top', transform=axs[1].transAxes)
         axs[1].set_ylabel('Semiminor axis (pixels)')
-        axs[1].text(0.5, 0.9, 'LASER0',
-                    horizontalalignment='center', transform=axs[1].transAxes)
+        axs[1].text(0.05, 0.9, 'LASER0',
+                    horizontalalignment='left', transform=axs[1].transAxes)
         axs[1].set_ylim([4.1,15.9])
         
         axs[2].scatter(start[laser1 & fpma & goodfit],semiminor[laser1 & fpma & goodfit],
@@ -431,9 +472,17 @@ def plot_laser_trends(result_dir):
         axs[2].scatter(start[laser1 & fpmb & goodfit],semiminor[laser1 & fpmb & goodfit],
                         c=saa[laser1 & fpmb & goodfit],cmap='rainbow',
                         norm=saanorm,marker='^',edgecolors='k')
+        av_before = np.mean(semiminor[laser1 & goodfit & no_extended & (start < latest_change)])
+        av_after = np.mean(semiminor[laser1 & goodfit & no_extended & (start > latest_change)])
+        axs[2].plot([min(start[laser1 & goodfit]),latest_change],[av_before,av_before],color='red')
+        axs[2].plot([latest_change,max(start[laser1 & goodfit])],[av_after,av_after],color='red')
+        for m in mod_date:
+            axs[2].plot([mod_date[m], mod_date[m]],[5,19],ls=':',color='grey')
+        axs[2].text(0.8, 0.95, f'Av. before: {av_before:.2f}\n Av. after: {av_after:.2f}',
+                    horizontalalignment='left', verticalalignment='top', transform=axs[2].transAxes)
         axs[2].set_xlabel('Date')
-        axs[2].text(0.5, 0.9, 'LASER1',
-                    horizontalalignment='center', transform=axs[2].transAxes)
+        axs[2].text(0.05, 0.9, 'LASER1',
+                    horizontalalignment='left', transform=axs[2].transAxes)
         axs[2].set_ylim([4.1,15.9])
         plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
         fig.colorbar(saamap, ax=axs[:], shrink=0.8, location='right',label='SAA')
@@ -492,9 +541,17 @@ def plot_laser_trends(result_dir):
         axs[0].scatter(start[orig & fpmb & goodfit],e[orig & fpmb & goodfit],
                         c=saa[orig & fpmb & goodfit],cmap='rainbow',
                         norm=saanorm,marker='^',edgecolors='k',label='FPMB')
-        axs[0].text(0.5, 0.9, 'Two lasers (original)',
-                    horizontalalignment='center', transform=axs[0].transAxes)
-        axs[0].legend()
+        av_before = np.mean(e[orig & goodfit & no_extended & (start < latest_change)])
+        av_after = np.mean(e[orig & goodfit & no_extended & (start > latest_change)])
+        axs[0].plot([min(start[orig & goodfit]),latest_change],[av_before,av_before],color='red')
+        axs[0].plot([latest_change,max(start[orig & goodfit])],[av_after,av_after],color='red')
+        for m in mod_date:
+            axs[0].plot([mod_date[m], mod_date[m]],[0.9,2.4],ls=':',color='grey')
+        axs[0].text(0.8, 0.95, f'Av. before: {av_before:.2f}\n Av. after: {av_after:.2f}',
+                    horizontalalignment='left', verticalalignment='top', transform=axs[0].transAxes)
+        axs[0].text(0.05, 0.9, 'Two lasers (original)',
+                    horizontalalignment='left', transform=axs[0].transAxes)
+        axs[0].legend(loc=9)
         axs[0].set_ylim([0.9,2.4])
         
         axs[1].scatter(start[laser0 & fpma & goodfit],e[laser0 & fpma & goodfit],
@@ -503,9 +560,17 @@ def plot_laser_trends(result_dir):
         axs[1].scatter(start[laser0 & fpmb & goodfit],e[laser0 & fpmb & goodfit],
                         c=saa[laser0 & fpmb & goodfit],cmap='rainbow',
                         norm=saanorm,marker='^',edgecolors='k')
+        av_before = np.mean(e[laser0 & goodfit & no_extended & (start < latest_change)])
+        av_after = np.mean(e[laser0 & goodfit & no_extended & (start > latest_change)])
+        axs[1].plot([min(start[laser0 & goodfit]),latest_change],[av_before,av_before],color='red')
+        axs[1].plot([latest_change,max(start[laser0 & goodfit])],[av_after,av_after],color='red')
+        for m in mod_date:
+            axs[1].plot([mod_date[m], mod_date[m]],[0.9,2.4],ls=':',color='grey')
+        axs[1].text(0.8, 0.95, f'Av. before: {av_before:.2f}\n Av. after: {av_after:.2f}',
+                    horizontalalignment='left', verticalalignment='top', transform=axs[1].transAxes)
         axs[1].set_ylabel('Axis ratio a/b')
-        axs[1].text(0.5, 0.9, 'LASER0',
-                    horizontalalignment='center', transform=axs[1].transAxes)
+        axs[1].text(0.05, 0.9, 'LASER0',
+                    horizontalalignment='left', transform=axs[1].transAxes)
         axs[1].set_ylim([0.9,2.4])
         
         axs[2].scatter(start[laser1 & fpma & goodfit],e[laser1 & fpma & goodfit],
@@ -514,9 +579,17 @@ def plot_laser_trends(result_dir):
         axs[2].scatter(start[laser1 & fpmb & goodfit],e[laser1 & fpmb & goodfit],
                         c=saa[laser1 & fpmb & goodfit],cmap='rainbow',
                         norm=saanorm,marker='^',edgecolors='k')
+        av_before = np.mean(e[laser1 & goodfit & no_extended & (start < latest_change)])
+        av_after = np.mean(e[laser1 & goodfit & no_extended & (start > latest_change)])
+        axs[2].plot([min(start[laser1 & goodfit]),latest_change],[av_before,av_before],color='red')
+        axs[2].plot([latest_change,max(start[laser1 & goodfit])],[av_after,av_after],color='red')
+        for m in mod_date:
+            axs[2].plot([mod_date[m], mod_date[m]],[0.9,2.4],ls=':',color='grey')
+        axs[2].text(0.8, 0.95, f'Av. before: {av_before:.2f}\n Av. after: {av_after:.2f}',
+                    horizontalalignment='left', verticalalignment='top', transform=axs[2].transAxes)
         axs[2].set_xlabel('Date')
-        axs[2].text(0.5, 0.9, 'LASER1',
-                    horizontalalignment='center', transform=axs[2].transAxes)
+        axs[2].text(0.05, 0.9, 'LASER1',
+                    horizontalalignment='left', transform=axs[2].transAxes)
         axs[2].set_ylim([0.9,2.4])
         plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
         fig.colorbar(saamap, ax=axs[:], shrink=0.8, location='right',label='SAA')
@@ -575,8 +648,8 @@ def plot_laser_trends(result_dir):
         z = results[orig & fpma]['BASELINE']
         lin_x, lin_y = np.linspace(0,180,181), np.linspace(5,40,201)*1.e7
         grid_x, grid_y = np.meshgrid(lin_x, lin_y)
-        grid_z = estimate_baseline(grid_x, grid_y)
-        residuals = z - estimate_baseline(x,y)
+        grid_z = rel_dict['baseline'](grid_x, grid_y)
+        residuals = z - rel_dict['baseline'](x,y)
         
         # Turn y-axis to date
         y_dates = mdates.date2num(start[orig & fpma])
@@ -602,6 +675,8 @@ def plot_laser_trends(result_dir):
         ax2 = plt.subplot2grid(shape=(3, 1),loc=(2, 0))
         ax2.set_title('Baseline residuals')
         ax2.scatter(y_dates,residuals,marker='o',edgecolors='k',c=x,cmap='rainbow',norm=saanorm)
+        ax2.plot([mod_date['baseline'], mod_date['baseline']],[min(residuals)-0.01,max(residuals)+0.01],ls=':',color='grey')
+        ax2.set_ylim([min(residuals)-0.01,max(residuals)+0.01])
         ax2.set_xlabel('Date')
         ax2.set_ylabel('Baseline residual (mm)')
         ax2.xaxis.set_ticks(dateticks)
@@ -616,14 +691,17 @@ def plot_laser_trends(result_dir):
         axs[0].scatter(saa[orig & fpma], results['ANGLE'][orig & fpma],
                        c=startnum[orig & fpma],cmap='viridis',
                        norm=startnorm,marker='o',edgecolors='k')
-        axs[0].plot(saa_axis,translation_angle(saa_axis),color='r')
+        axs[0].plot(saa_axis,rel_dict['translation_angle'](saa_axis),color='r')
         axs[0].set_xlabel('SAA')
         axs[0].set_ylabel('Angle (rad)')
         axs[1].set_title('Translation Angle Residuals vs Time')
-        axs[1].scatter(start[orig & fpma],
-                       results['ANGLE'][orig & fpma] - translation_angle(saa[orig & fpma]),
+        residuals = results['ANGLE'][orig & fpma] - rel_dict['translation_angle'](saa[orig & fpma])
+        axs[1].scatter(start[orig & fpma], residuals,
                        c=saa[orig & fpma],cmap='rainbow',
                        norm=saanorm,marker='o',edgecolors='k')
+        axs[1].plot([mod_date['translation_angle'], mod_date['translation_angle']],
+                    [min(residuals)-0.001,max(residuals)+0.001],ls=':',color='grey')
+        axs[1].set_ylim([min(residuals)-0.001,max(residuals)+0.001])
         axs[1].axhline(ls='--',c='gray')
         axs[1].set_xlabel('Date')
         axs[1].set_ylabel('Angle residual (rad)')
@@ -640,17 +718,17 @@ def plot_laser_trends(result_dir):
         axs[0].scatter(saa[orig & fpma],results['AMP_OFFSET'][orig & fpma],
                         c=startnum[orig & fpma],cmap='viridis',
                         norm=startnorm,marker='o',edgecolors='k')
-        axs[0].plot(saa_axis,sine_mean(saa_axis),color='r')
+        axs[0].plot(saa_axis,rel_dict['sine_mean'](saa_axis),color='r')
         axs[0].set_ylabel('Mean angle (rad)')
         axs[1].scatter(saa[orig & fpma],results['AMP'][orig & fpma],
                         c=startnum[orig & fpma],cmap='viridis',
                         norm=startnorm,marker='o',edgecolors='k')
-        axs[1].plot(saa_axis,sine_amp(saa_axis),color='r')
+        axs[1].plot(saa_axis,rel_dict['sine_amp'](saa_axis),color='r')
         axs[1].set_ylabel('Amplitude (rad)')
         axs[2].scatter(saa[orig & fpma],day_phase_diff[orig & fpma],
                         c=startnum[orig & fpma],cmap='viridis',
                         norm=startnorm,marker='o',edgecolors='k')
-        axs[2].plot(saa_axis,phase_diff(saa_axis),color='r')
+        axs[2].plot(saa_axis,rel_dict['phase_diff'](saa_axis),color='r')
         axs[2].set_ylabel('Phase Diff')
         axs[2].set_xlabel('SAA')
         plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
@@ -663,22 +741,31 @@ def plot_laser_trends(result_dir):
         # Twist angle residuals vs Time
         fig, axs = plt.subplots(3, 1, sharex=True, figsize=[14,12])
         axs[0].set_title('Mast Twist Angle residuals')
-        axs[0].scatter(start[orig & fpma],
-                        results['AMP_OFFSET'][orig & fpma] - sine_mean(saa[orig & fpma]),
+        residuals = results['AMP_OFFSET'][orig & fpma] - rel_dict['sine_mean'](saa[orig & fpma])
+        axs[0].scatter(start[orig & fpma], residuals,
                         c=saa[orig & fpma],cmap='rainbow',
                         norm=saanorm,marker='o',edgecolors='k')
+        axs[0].plot([mod_date['sine_mean'], mod_date['sine_mean']],
+                    [min(residuals)-0.0005,max(residuals)+0.0005],ls=':',color='grey')
+        axs[0].set_ylim([min(residuals)-0.0005,max(residuals)+0.0005])
         axs[0].axhline(ls='--',c='gray')
         axs[0].set_ylabel('Mean angle (rad)')
-        axs[1].scatter(start[orig & fpma],
-                        results['AMP'][orig & fpma] - sine_amp(saa[orig & fpma]),
+        residuals = results['AMP'][orig & fpma] - rel_dict['sine_amp'](saa[orig & fpma])
+        axs[1].scatter(start[orig & fpma], residuals,
                         c=saa[orig & fpma],cmap='rainbow',
                         norm=saanorm,marker='o',edgecolors='k')
+        axs[1].plot([mod_date['sine_amp'], mod_date['sine_amp']],
+                    [min(residuals)-0.0005,max(residuals)+0.0005],ls=':',color='grey')
+        axs[1].set_ylim([min(residuals)-0.0005,max(residuals)+0.0005])
         axs[1].set_ylabel('Amplitude (rad)')
         axs[1].axhline(ls='--',c='gray')
-        axs[2].scatter(start[orig & fpma],
-                        day_phase_diff[orig & fpma] - phase_diff(saa[orig & fpma]),
+        residuals = day_phase_diff[orig & fpma] - rel_dict['phase_diff'](saa[orig & fpma])
+        axs[2].scatter(start[orig & fpma], residuals,
                         c=saa[orig & fpma],cmap='rainbow',
                         norm=saanorm,marker='o',edgecolors='k')
+        axs[2].plot([mod_date['phase_diff'], mod_date['phase_diff']],
+                    [min(residuals)-0.05,max(residuals)+0.05],ls=':',color='grey')
+        axs[2].set_ylim([min(residuals)-0.05,max(residuals)+0.05])
         axs[2].axhline(ls='--',c='gray')
         axs[2].set_ylabel('Phase Diff')
         axs[2].set_xlabel('Date')
@@ -694,12 +781,12 @@ def plot_laser_trends(result_dir):
         axs[0].scatter(saa[laser0 & fpma],results['X_DIFF_ACTUAL'][laser0 & fpma],
                         c=startnum[laser0 & fpma],cmap='viridis',
                         norm=startnorm,marker='o',edgecolors='k')
-        axs[0].plot(saa_axis,x_amp_diff_0to1(saa_axis),color='r')
+        axs[0].plot(saa_axis,rel_dict['x_amp_diff_0to1'](saa_axis),color='r')
         axs[0].set_ylabel('X transform amp diff (mm)')
         axs[1].scatter(saa[laser0 & fpma],results['Y_DIFF_ACTUAL'][laser0 & fpma],
                         c=startnum[laser0 & fpma],cmap='viridis',
                         norm=startnorm,marker='o',edgecolors='k')
-        axs[1].plot(saa_axis,y_amp_diff_0to1(saa_axis),color='r')
+        axs[1].plot(saa_axis,rel_dict['y_amp_diff_0to1'](saa_axis),color='r')
         axs[1].set_ylabel('Y transform amp diff (mm)')
         axs[1].set_xlabel('SAA')
         plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
@@ -710,17 +797,23 @@ def plot_laser_trends(result_dir):
         plt.close()
         
         fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,12])
+        residuals = results['X_DIFF_ACTUAL'][laser0 & fpma] - rel_dict['x_amp_diff_0to1'](saa[laser0 & fpma])
         axs[0].set_title('Translation diff residuals (LASER0)')
-        axs[0].scatter(start[laser0 & fpma],
-                        results['X_DIFF_ACTUAL'][laser0 & fpma] - x_amp_diff_0to1(saa[laser0 & fpma]),
+        axs[0].scatter(start[laser0 & fpma], residuals,
                         c=saa[laser0 & fpma],cmap='rainbow',
                         norm=saanorm,marker='o',edgecolors='k')
+        axs[0].plot([mod_date['x_amp_diff_0to1'], mod_date['x_amp_diff_0to1']],
+                    [min(residuals)-0.1,max(residuals)+0.1],ls=':',color='grey')
+        axs[0].set_ylim([min(residuals)-0.1,max(residuals)+0.1])
         axs[0].axhline(ls='--',c='gray')
         axs[0].set_ylabel('X transform amp diff (mm)')
-        axs[1].scatter(start[laser0 & fpma],
-                        results['Y_DIFF_ACTUAL'][laser0 & fpma] - y_amp_diff_0to1(saa[laser0 & fpma]),
+        residuals = results['Y_DIFF_ACTUAL'][laser0 & fpma] - rel_dict['y_amp_diff_0to1'](saa[laser0 & fpma])
+        axs[1].scatter(start[laser0 & fpma], residuals,
                         c=saa[laser0 & fpma],cmap='rainbow',
                         norm=saanorm,marker='o',edgecolors='k')
+        axs[1].plot([mod_date['y_amp_diff_0to1'], mod_date['y_amp_diff_0to1']],
+                    [min(residuals)-0.1,max(residuals)+0.1],ls=':',color='grey')
+        axs[1].set_ylim([min(residuals)-0.1,max(residuals)+0.1])
         axs[1].axhline(ls='--',c='gray')
         axs[1].set_ylabel('Y transform amp diff (mm)')
         axs[1].set_xlabel('Date')
@@ -736,12 +829,12 @@ def plot_laser_trends(result_dir):
         axs[0].scatter(saa[laser1 & fpma],results['X_DIFF_ACTUAL'][laser1 & fpma],
                         c=startnum[laser1 & fpma],cmap='viridis',
                         norm=startnorm,marker='o',edgecolors='k')
-        axs[0].plot(saa_axis,x_amp_diff_1to0(saa_axis),color='r')
+        axs[0].plot(saa_axis,rel_dict['x_amp_diff_1to0'](saa_axis),color='r')
         axs[0].set_ylabel('X transform amp diff (mm)')
         axs[1].scatter(saa[laser1 & fpma],results['Y_DIFF_ACTUAL'][laser1 & fpma],
                         c=startnum[laser1 & fpma],cmap='viridis',
                         norm=startnorm,marker='o',edgecolors='k')
-        axs[1].plot(saa_axis,y_amp_diff_1to0(saa_axis),color='r')
+        axs[1].plot(saa_axis,rel_dict['y_amp_diff_1to0'](saa_axis),color='r')
         axs[1].set_ylabel('Y transform amp diff (mm)')
         axs[1].set_xlabel('SAA')
         plt.subplots_adjust(bottom=0.1, right=1, top=0.9, hspace=0)
@@ -753,16 +846,22 @@ def plot_laser_trends(result_dir):
         
         fig, axs = plt.subplots(2, 1, sharex=True, figsize=[14,12])
         axs[0].set_title('Translation diff residuals (LASER1)')
-        axs[0].scatter(start[laser1 & fpma],
-                        results['X_DIFF_ACTUAL'][laser1 & fpma] - x_amp_diff_1to0(saa[laser1 & fpma]),
+        residuals = results['X_DIFF_ACTUAL'][laser1 & fpma] - rel_dict['x_amp_diff_1to0'](saa[laser1 & fpma])
+        axs[0].scatter(start[laser1 & fpma], residuals,
                         c=saa[laser1 & fpma],cmap='rainbow',
                         norm=saanorm,marker='o',edgecolors='k')
+        axs[0].plot([mod_date['x_amp_diff_1to0'], mod_date['x_amp_diff_1to0']],
+                    [min(residuals)-0.1,max(residuals)+0.1],ls=':',color='grey')
+        axs[0].set_ylim([min(residuals)-0.1,max(residuals)+0.1])
         axs[0].axhline(ls='--',c='gray')
         axs[0].set_ylabel('X transform amp diff (mm)')
-        axs[1].scatter(start[laser1 & fpma],
-                        results['Y_DIFF_ACTUAL'][laser1 & fpma] - y_amp_diff_1to0(saa[laser1 & fpma]),
+        residuals = results['Y_DIFF_ACTUAL'][laser1 & fpma] - rel_dict['y_amp_diff_1to0'](saa[laser1 & fpma])
+        axs[1].scatter(start[laser1 & fpma], residuals,
                         c=saa[laser1 & fpma],cmap='rainbow',
                         norm=saanorm,marker='o',edgecolors='k')
+        axs[1].plot([mod_date['y_amp_diff_1to0'], mod_date['y_amp_diff_1to0']],
+                    [min(residuals)-0.1,max(residuals)+0.1],ls=':',color='grey')
+        axs[1].set_ylim([min(residuals)-0.1,max(residuals)+0.1])
         axs[1].axhline(ls='--',c='gray')
         axs[1].set_ylabel('Y transform amp diff (mm)')
         axs[1].set_xlabel('Date')
@@ -774,7 +873,8 @@ def plot_laser_trends(result_dir):
         
 def test_spline_update(fltops_dir,result_dir):
     '''
-        This function...
+        This function tests a new spline relation on 100 random observations to determine whether
+        the performance is improved compared to the current relations
         
         Parameters
         ----------
@@ -795,7 +895,7 @@ def test_spline_update(fltops_dir,result_dir):
     
     rel_dict = {}
     for relation in interpolators:
-        # Find the archive files for this relation and get most recent version
+        # Find the archive files for this relation and get most recent (i.e. new) version
         files = np.array(os.listdir(resources.files('singlelaser.interpolators.archive')))
         this_rel = [f.startswith(relation) for f in files]
         datestrings = [np.int32(s[-12:-4]) for s in files[this_rel]]
@@ -1206,6 +1306,7 @@ def parse_obs_schedule():
     return observations
 
 def main():
+
     # Check for observation directory from the command line
     if len(sys.argv) < 3:
         fltops_dir = input('Data input directory: ')
@@ -1219,7 +1320,7 @@ def main():
     new_rows = laser_trends(fltops_dir, result_dir, sl_dir)
     if new_rows > 0:
         plot_laser_trends(result_dir)
-        
+    
 def test_update():
     # Check for directories from the command line
     if len(sys.argv) < 2:
