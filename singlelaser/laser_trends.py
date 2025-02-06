@@ -640,13 +640,13 @@ def plot_laser_trends(result_dir):
         plt.close()
         
         # Baseline and angle by SAA and time (plus models)
-        dateticks = [mdates.date2num(datetime.strptime(str(y), '%Y')) for y in np.arange(2013,datetime.now().year+1)]
+        dateticks = [mdates.date2num(datetime.strptime(str(y), '%Y')) for y in np.arange(2012,datetime.now().year+1,2)]
         torigin = datetime.strptime('2010','%Y')
         x = saa[orig & fpma]
         y = np.array([t.total_seconds()
                       for t in (start[orig & fpma] - torigin)])
         z = results[orig & fpma]['BASELINE']
-        lin_x, lin_y = np.linspace(0,180,181), np.linspace(5,40,201)*1.e7
+        lin_x, lin_y = np.linspace(0,180,181), np.linspace(5,50,451)*1.e7
         grid_x, grid_y = np.meshgrid(lin_x, lin_y)
         grid_z = rel_dict['baseline'](grid_x, grid_y)
         residuals = z - rel_dict['baseline'](x,y)
@@ -676,11 +676,17 @@ def plot_laser_trends(result_dir):
         ax2.set_title('Baseline residuals')
         ax2.scatter(y_dates,residuals,marker='o',edgecolors='k',c=x,cmap='rainbow',norm=saanorm)
         ax2.plot([mod_date['baseline'], mod_date['baseline']],[min(residuals)-0.01,max(residuals)+0.01],ls=':',color='grey')
+        # Some other key dates
+        ax2.plot([datetime(2018,5,22),datetime(2018,5,22)],[min(residuals)-0.01,max(residuals)+0.01],ls=':',color='orange', label='2018 mast adjustment')
+        ax2.plot([datetime(2020,1,14),datetime(2020,1,14)],[min(residuals)-0.01,max(residuals)+0.01],ls=':',color='red', label='Laser temperature adjustments')
+        ax2.plot([datetime(2020,2,19),datetime(2020,2,19)],[min(residuals)-0.01,max(residuals)+0.01],ls=':',color='red')
+        
         ax2.set_ylim([min(residuals)-0.01,max(residuals)+0.01])
         ax2.set_xlabel('Date')
         ax2.set_ylabel('Baseline residual (mm)')
         ax2.xaxis.set_ticks(dateticks)
         ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+        ax2.legend()
         fig.colorbar(saamap, ax=ax2, location='right',label='SAA')
         pdf.savefig()
         plt.close()
